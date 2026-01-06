@@ -52,8 +52,7 @@ async def ping(interaction: discord.Interaction):
 
 @tree.command(
     name="about",
-    description="About Butterfly's Den and its creator",
-    dm_permission=True
+    description="About Butterfly's Den and its creator"
 )
 async def about(interaction: discord.Interaction):
     await interaction.response.send_message(
@@ -68,8 +67,7 @@ async def about(interaction: discord.Interaction):
 
 @tree.command(
     name="mp3",
-    description="Download audio as MP3",
-    dm_permission=True
+    description="Download audio as MP3"
 )
 @app_commands.describe(url="Media URL (YouTube, Twitter video, etc.)")
 async def mp3(interaction: discord.Interaction, url: str):
@@ -130,8 +128,7 @@ async def mp3(interaction: discord.Interaction, url: str):
 
 @tree.command(
     name="download",
-    description="Download media (video or images)",
-    dm_permission=True
+    description="Download media (video or images)"
 )
 @app_commands.describe(url="Media URL (YouTube, Twitter, Instagram, etc.)")
 async def download(interaction: discord.Interaction, url: str):
