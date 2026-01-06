@@ -50,9 +50,27 @@ def compress_video(input_path: Path, output_path: Path) -> bool:
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("pong")
 
-import time
+@tree.command(
+    name="about",
+    description="About Butterfly's Den and its creator",
+    dm_permission=True
+)
+async def about(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        content=(
+            "**🦋 Butterfly's Den**\n\n"
+            "Created by **Whims-Dev**\n\n"
+            "🔗 GitHub: https://github.com/Whims-Dev\n"
+            "🌐 Portfolio & Availability: https://discord.gg/Zfd8Jx4Eq2\n"
+        ),
+        ephemeral=True
+    )
 
-@tree.command(name="mp3", description="Download audio as MP3")
+@tree.command(
+    name="mp3",
+    description="Download audio as MP3",
+    dm_permission=True
+)
 @app_commands.describe(url="Media URL (YouTube, Twitter video, etc.)")
 async def mp3(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
@@ -110,7 +128,11 @@ async def mp3(interaction: discord.Interaction, url: str):
         finally:
             job.cleanup()
 
-@tree.command(name="download", description="Download media (video or images)")
+@tree.command(
+    name="download",
+    description="Download media (video or images)",
+    dm_permission=True
+)
 @app_commands.describe(url="Media URL (YouTube, Twitter, Instagram, etc.)")
 async def download(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
