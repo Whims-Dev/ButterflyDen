@@ -1,6 +1,6 @@
-# 🦋 ButterflyDen
+# 🦋 Butterfly's Den
 
-ButterflyDen is a self-hosted Discord bot for downloading media from supported platforms using **yt-dlp**.
+Butterfly's Den is a self-hosted Discord bot for downloading media from supported platforms using **yt-dlp**.
 
 It is designed to be:
 
@@ -37,7 +37,7 @@ It is designed to be:
 
 ## 📦 Supported platforms
 
-ButterflyDen relies on **yt-dlp**, so it supports many platforms, including:
+Butterfly's Den relies on **yt-dlp**, so it supports many platforms, including:
 
 * YouTube
 * Twitter / X
@@ -93,7 +93,7 @@ python bot.py
 
 ## ⚙️ Running as a service (recommended)
 
-ButterflyDen is designed to be run using **systemd** for:
+Butterfly's Den is designed to be run using **systemd** for:
 
 * automatic startup on boot
 * automatic restarts on crash
