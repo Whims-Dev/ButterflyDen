@@ -110,6 +110,20 @@ ButterflyDen is designed to be run using **systemd** for:
 
 ---
 
+## 🤖 AI Assistance
+
+Parts of this project were developed with the assistance of AI tools.
+
+AI was used as a programming aid for:
+
+* brainstorming architecture and workflows
+* debugging and explaining errors
+* refining code structure and readability
+
+All final decisions, testing, integration, and deployment were performed by the project author.
+
+---
+
 ## 📜 License
 
 MIT License
