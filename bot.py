@@ -57,7 +57,7 @@ import time
 async def mp3(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
-            "⏳ I'm already working on a download. Try again in a moment.",
+            "⏳ Busy. Try again shortly.",
             ephemeral=True
         )
         return
@@ -115,11 +115,11 @@ async def mp3(interaction: discord.Interaction, url: str):
 async def download(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
-            "⏳ I'm already working on a download. Try again in a moment.",
+            "⏳ Busy. Try again shortly.",
             ephemeral=True
         )
         return
-    
+
     await interaction.response.defer(thinking=True)
 
     async with DOWNLOAD_LOCK:
