@@ -370,10 +370,16 @@ async def on_message(message: discord.Message):
 
                         try:
                             nodes = json.loads(stdout)
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as e:
+                            preview_out = stdout[:1500].strip() or "<empty>"
+                            preview_err = stderr[:1500].strip() or "<empty>"
+
                             await message.reply(
-                                "❌ **RBXM parser returned invalid data**\n"
-                                "The internal tool did not output valid JSON."
+                                "❌ **RBXM parser returned invalid output**\n\n"
+                                "**stdout:**\n"
+                                f"```{preview_out}```\n"
+                                "**stderr:**\n"
+                                f"```{preview_err}```"
                             )
                             continue
 
