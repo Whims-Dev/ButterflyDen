@@ -1,3 +1,5 @@
+local json = require("json")
+
 local path = select(1, ...)
 print("DEBUG PATH:", path)
 assert(path, "missing path")
