@@ -13,6 +13,9 @@ It is designed to be:
 
 ## ✨ Features
 
+* **`Roblox Model File Hierarchy Previewer`**
+  When a message with model attachments is sent in a guild, the bot will reply with a file hierarchy embed. 
+
 * **`/download`**
   Downloads media from supported platforms:
 
