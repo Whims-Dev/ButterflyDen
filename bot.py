@@ -355,21 +355,28 @@ async def on_message(message: discord.Message):
                             if "path not accessible" in stderr:
                                 reason = (
                                     "rbxmk could not access the file path.\n"
-                                    "This usually means the file is outside its working directory."
+                                    "This is an internal tooling limitation."
                                 )
                             elif stderr:
-                                reason = stderr.strip().splitlines()[-1]
-                            elif not stdout:
-                                reason = "No output was produced by rbxmk."
+                                reason = stderr.splitlines()[-1]
+                            else:
+                                reason = "No output was produced by the parser."
 
                             await message.reply(
                                 "❌ **Failed to read RBXM file**\n"
-                                f"{reason}\n\n"
-                                "💡 *Tip:* This is usually an internal tool issue, not your file."
+                                f"{reason}"
                             )
                             continue
 
-                        nodes = json.loads(stdout)
+                        try:
+                            nodes = json.loads(stdout)
+                        except json.JSONDecodeError:
+                            await message.reply(
+                                "❌ **RBXM parser returned invalid data**\n"
+                                "The internal tool did not output valid JSON."
+                            )
+                            continue
+
                         children = defaultdict(list)
                         root_nodes = []
 
