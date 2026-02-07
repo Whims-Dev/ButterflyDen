@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from jobs.job import Job
 import tempfile
 import xml.etree.ElementTree as ET
+from rbxm_minimal import parse_rbxm_hierarchy
 
 load_dotenv()
 
@@ -75,28 +76,6 @@ def compress_video(input_path: Path, output_path: Path) -> bool:
         text=True
     )
     return result.returncode == 0
-
-def convert_rbxm_to_rbxmx(src: Path, dst: Path):
-    script = f"""
-local v = fs.read("{src.as_posix()}", "rbxm")
-fs.write("{dst.as_posix()}", v, "rbxmx")
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False) as f:
-        f.write(script)
-        script_path = f.name
-
-    try:
-        subprocess.run(
-            [RBXMK_PATH, "run", script_path],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-    finally:
-        try:
-            os.remove(script_path)
-        except:
-            pass
 
 def _get_name_from_item(item: ET.Element):
     props = item.find("Properties")
@@ -345,16 +324,54 @@ async def on_message(message: discord.Message):
                 await att.save(src)
 
                 rbxmx = src
-                if src.suffix.lower() == ".rbxm":
-                    rbxmx = tmp / (src.stem + ".rbxmx")
-                    try:
-                        convert_rbxm_to_rbxmx(src, rbxmx)
-                    except Exception as e:
-                        await message.reply(f"❌ RBXM conversion failed:\n```{str(e)[:1800]}```")
-                        continue
-
                 try:
-                    text, node_count, truncated = build_rbxmx_hierarchy_text(rbxmx)
+                    if src.suffix.lower() == ".rbxmx":
+                        text, node_count, truncated = build_rbxmx_hierarchy_text(src)
+
+                    else:  # .rbxm
+                        nodes = parse_rbxm_hierarchy(src)
+
+                        # build hierarchy text from RBXM nodes
+                        from collections import defaultdict
+
+                        children = defaultdict(list)
+                        root_nodes = []
+
+                        for id, name, cls, parent in nodes:
+                            if parent == -1:
+                                root_nodes.append((id, name, cls))
+                            else:
+                                children[parent].append((id, name, cls))
+
+                        lines = []
+                        count = 0
+                        truncated = False
+
+                        def walk(node_id, name, cls, depth):
+                            nonlocal count, truncated
+                            if count >= MAX_RBX_NODES or depth >= MAX_RBX_DEPTH:
+                                truncated = True
+                                return
+
+                            count += 1
+                            indent = "  " * depth
+                            icon = CLASS_ICONS.get(cls, DEFAULT_ICON)
+                            label = f"{name} ({cls})" if name != cls else cls
+                            lines.append(f"{indent}{icon} {label}")
+
+                            for child_id, child_name, child_cls in children.get(node_id, []):
+                                walk(child_id, child_name, child_cls, depth + 1)
+
+                        for id, name, cls in root_nodes:
+                            walk(id, name, cls, 0)
+
+                        if truncated:
+                            lines.append("")
+                            lines.append(f"[truncated: limit reached (nodes={MAX_RBX_NODES}, depth={MAX_RBX_DEPTH})]")
+
+                        text = "\n".join(lines)
+                        node_count = count
+
                 except Exception as e:
                     await message.reply(f"❌ Failed to parse model:\n```{str(e)[:1800]}```")
                     continue
