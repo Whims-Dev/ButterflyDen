@@ -1,3 +1,4 @@
+from cProfile import label
 import os
 import discord
 import subprocess
@@ -22,6 +23,27 @@ DOWNLOAD_LOCK = asyncio.Lock()
 RBXMK_PATH = os.getenv("RBXMK_PATH", "rbxmk")
 MAX_RBX_NODES = 800
 MAX_RBX_DEPTH = 40
+
+CLASS_ICONS = {
+    "Model": "📦",
+    "Folder": "📁",
+
+    "Part": "🧱",
+    "MeshPart": "🔷",
+    "UnionOperation": "🔶",
+
+    "Attachment": "📍",
+    "WeldConstraint": "🔗",
+    "Motor6D": "🦴",
+
+    "Script": "📜",
+    "LocalScript": "📜",
+    "ModuleScript": "📘",
+
+    "Humanoid": "🧍",
+    "Animator": "🎞️",
+}
+DEFAULT_ICON = "▫️"
 
 @client.event
 async def on_ready():
@@ -115,7 +137,9 @@ def build_rbxmx_hierarchy_text(rbxmx_path: Path):
         name = _get_name_from_item(item) or class_name
 
         indent = "  " * depth
-        lines.append(f"{indent}{class_name} ({name})")
+        icon = CLASS_ICONS.get(class_name, DEFAULT_ICON)
+        label = f"{name} ({class_name})" if name != class_name else class_name
+        lines.append(f"{indent}{icon} {label}")
 
         for child in item.findall("Item"):
             walk(child, depth + 1)
