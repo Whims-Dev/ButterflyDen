@@ -1,4 +1,6 @@
-local path = assert(arg[2], "missing rbxm path")
+local path = select(1, ...)
+print("DEBUG PATH:", path)
+assert(path, "missing path")
 
 local model = fs.read(path, "rbxm")
 
