@@ -1,3 +1,6 @@
+assert(type(json) == "table", "json is not a table, got: " .. type(json))
+assert(type(json.encode) == "function", "json.encode is not a function")
+
 local path = select(1, ...)
 assert(path, "missing path")
 
