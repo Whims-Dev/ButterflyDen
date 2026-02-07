@@ -351,21 +351,12 @@ async def on_message(message: discord.Message):
                         stderr = proc.stderr.strip()
 
                         if proc.returncode != 0 or not stdout:
-                            reason = "Unknown error"
-
-                            if "path not accessible" in stderr:
-                                reason = (
-                                    "rbxmk could not access the file path.\n"
-                                    "This is an internal tooling limitation."
-                                )
-                            elif stderr:
-                                reason = stderr.splitlines()[-1]
-                            else:
-                                reason = "No output was produced by the parser."
+                            err = stderr.strip() or "No error output"
 
                             await message.reply(
-                                "❌ **Failed to read RBXM file**\n"
-                                f"{reason}"
+                                "❌ **Failed to read RBXM file**\n\n"
+                                "**rbxmk error:**\n"
+                                f"```lua\n{err[:1800]}\n```"
                             )
                             continue
 
