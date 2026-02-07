@@ -1,7 +1,4 @@
-local json = require("json")
-
 local path = select(1, ...)
-print("DEBUG PATH:", path)
 assert(path, "missing path")
 
 local model = fs.read(path, "rbxm")
@@ -11,14 +8,14 @@ local nextId = 0
 
 local function walk(inst, parent)
     local id = nextId
-    nextId = nextId + 1
+    nextId += 1
 
-    table.insert(nodes, {
+    nodes[#nodes + 1] = {
         id = id,
         name = inst.Name,
         class = inst.ClassName,
         parent = parent,
-    })
+    }
 
     for _, child in ipairs(inst:GetChildren()) do
         walk(child, id)
