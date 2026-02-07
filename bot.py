@@ -26,6 +26,12 @@ RBXMK_PATH = os.getenv("RBXMK_PATH", "rbxmk")
 MAX_RBX_NODES = 800
 MAX_RBX_DEPTH = 40
 
+BASE_DIR = Path(__file__).resolve().parent
+TOOLS_DIR = BASE_DIR / "tools"
+
+RBXMK_PATH = TOOLS_DIR / "rbxmk"
+RBX_HIERARCHY_LUA = TOOLS_DIR / "rbx_hierarchy.lua"
+
 CLASS_ICONS = {
     "Model": "📦",
     "Folder": "📁",
@@ -331,55 +337,56 @@ async def on_message(message: discord.Message):
 
                     else:  # .rbxm
                         out = subprocess.check_output(
-                        [
-                            "/workspaces/ButterflyDen/tools/rbxmk",
-                            "run",
-                            "/workspaces/ButterflyDen/tools/rbx_hierarchy.lua",
-                            str(src),
-                        ],
-                        text=True,
-                    )
+                            [
+                                str(RBXMK_PATH),
+                                "run",
+                                str(RBX_HIERARCHY_LUA),
+                                str(src),
+                            ],
+                            text=True,
+                        )
+                        nodes = json.loads(out)
 
-                    nodes = json.loads(out)
-                    children = defaultdict(list)
-                    root_nodes = []
+                        nodes = json.loads(out)
+                        children = defaultdict(list)
+                        root_nodes = []
 
-                    for n in nodes:
-                        if n["parent"] == -1:
-                            root_nodes.append(n)
-                        else:
-                            children[n["parent"]].append(n)
+                        for n in nodes:
+                            if n["parent"] == -1:
+                                root_nodes.append(n)
+                            else:
+                                children[n["parent"]].append(n)
 
-                    lines = []
-                    count = 0
-                    truncated = False
+                        lines = []
+                        count = 0
+                        truncated = False
 
-                    def walk(node, depth):
-                        nonlocal count, truncated
-                        if count >= MAX_RBX_NODES or depth >= MAX_RBX_DEPTH:
-                            truncated = True
-                            return
+                        def walk(node, depth):
+                            nonlocal count, truncated
+                            if count >= MAX_RBX_NODES or depth >= MAX_RBX_DEPTH:
+                                truncated = True
+                                return
 
-                        count += 1
-                        indent = "  " * depth
-                        cls = node["class"]
-                        name = node["name"]
-                        icon = CLASS_ICONS.get(cls, DEFAULT_ICON)
-                        label = f"{name} ({cls})" if name != cls else cls
-                        lines.append(f"{indent}{icon} {label}")
+                            count += 1
+                            indent = "  " * depth
+                            cls = node["class"]
+                            name = node["name"]
+                            icon = CLASS_ICONS.get(cls, DEFAULT_ICON)
+                            label = f"{name} ({cls})" if name != cls else cls
+                            lines.append(f"{indent}{icon} {label}")
 
-                        for child in children.get(node["id"], []):
-                            walk(child, depth + 1)
+                            for child in children.get(node["id"], []):
+                                walk(child, depth + 1)
 
-                    for node in root_nodes:
-                        walk(node, 0)
+                        for node in root_nodes:
+                            walk(node, 0)
 
-                    if truncated:
-                        lines.append("")
-                        lines.append(f"[truncated: limit reached (nodes={MAX_RBX_NODES}, depth={MAX_RBX_DEPTH})]")
+                        if truncated:
+                            lines.append("")
+                            lines.append(f"[truncated: limit reached (nodes={MAX_RBX_NODES}, depth={MAX_RBX_DEPTH})]")
 
-                    text = "\n".join(lines)
-                    node_count = count
+                        text = "\n".join(lines)
+                        node_count = count
 
                 except Exception as e:
                     await message.reply(f"❌ Failed to parse model:\n```{str(e)[:1800]}```")
