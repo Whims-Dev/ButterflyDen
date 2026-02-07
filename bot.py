@@ -342,6 +342,7 @@ async def on_message(message: discord.Message):
                                 "--",
                                 str(src),
                             ],
+                            cwd=tmp,
                             capture_output=True,
                             text=True,
                         )
