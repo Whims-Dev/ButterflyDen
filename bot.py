@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from jobs.job import Job
 import tempfile
 import xml.etree.ElementTree as ET
-from graphviz import Digraph
 
 load_dotenv()
 
@@ -21,7 +20,8 @@ tree = app_commands.CommandTree(client)
 DOWNLOAD_LOCK = asyncio.Lock()
 
 RBXMK_PATH = os.getenv("RBXMK_PATH", "rbxmk")
-MAX_RBX_NODES = 300
+MAX_RBX_NODES = 800
+MAX_RBX_DEPTH = 40
 
 @client.event
 async def on_ready():
@@ -67,61 +67,71 @@ fs.write("{dst.as_posix()}", v, "rbxmx")
         subprocess.run(
             [RBXMK_PATH, "run", script_path],
             check=True,
-            capture_output=True
+            capture_output=True,
+            text=True
         )
     finally:
-        os.remove(script_path)
+        try:
+            os.remove(script_path)
+        except:
+            pass
 
+def _get_name_from_item(item: ET.Element):
+    props = item.find("Properties")
+    if props is None:
+        return None
 
-def parse_rbxmx_tree(path: Path):
-    tree = ET.parse(path)
+    for s in props.findall("string"):
+        if s.attrib.get("name") == "Name":
+            return s.text or ""
+
+    for s in props.findall("ProtectedString"):
+        if s.attrib.get("name") == "Name":
+            return s.text or ""
+
+    return None
+
+def build_rbxmx_hierarchy_text(rbxmx_path: Path):
+    tree = ET.parse(rbxmx_path)
     root = tree.getroot()
 
-    nodes = []
-    edges = []
-    node_id = 0
+    lines = []
+    node_count = 0
+    truncated = False
 
-    def walk(item, parent=None):
-        nonlocal node_id
-        if node_id >= MAX_RBX_NODES:
+    def walk(item: ET.Element, depth: int):
+        nonlocal node_count, truncated
+
+        if truncated:
             return
 
-        node_id += 1
-        my_id = node_id
+        if node_count >= MAX_RBX_NODES or depth >= MAX_RBX_DEPTH:
+            truncated = True
+            return
+
+        node_count += 1
 
         class_name = item.attrib.get("class", "Instance")
-        name = class_name
+        name = _get_name_from_item(item) or class_name
 
-        props = item.find("Properties")
-        if props is not None:
-            for s in props.findall("string"):
-                if s.attrib.get("name") == "Name":
-                    name = s.text or class_name
-
-        nodes.append((my_id, name, class_name))
-        if parent:
-            edges.append((parent, my_id))
+        indent = "  " * depth
+        lines.append(f"{indent}{class_name} ({name})")
 
         for child in item.findall("Item"):
-            walk(child, my_id)
+            walk(child, depth + 1)
 
-    for top in root.findall("Item"):
-        walk(top)
+    top_items = root.findall("Item")
+    if not top_items:
+        raise RuntimeError("RBXMX has no <Item> entries")
 
-    return nodes, edges
+    for it in top_items:
+        walk(it, 0)
 
+    if truncated:
+        lines.append("")
+        lines.append(f"[truncated: limit reached (nodes={MAX_RBX_NODES}, depth={MAX_RBX_DEPTH})]")
 
-def render_tree_svg(nodes, edges, out_path: Path):
-    dot = Digraph("RBX", format="svg")
-    dot.attr(rankdir="LR", fontsize="10")
-
-    for i, name, cls in nodes:
-        dot.node(f"n{i}", f"{name}\n<{cls}>")
-
-    for a, b in edges:
-        dot.edge(f"n{a}", f"n{b}")
-
-    dot.render(out_path, cleanup=True)
+    return "\n".join(lines), node_count, truncated
 
 @tree.command(name="ping", description="Check if the bot is alive")
 async def ping(interaction: discord.Interaction):
@@ -300,48 +310,49 @@ async def on_message(message: discord.Message):
         return
 
     for att in message.attachments:
-        name = att.filename.lower()
+        name = (att.filename or "").lower()
         if not (name.endswith(".rbxm") or name.endswith(".rbxmx")):
             continue
 
-        await message.channel.typing()
+        async with message.channel.typing():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                src = tmp / att.filename
+                await att.save(src)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            src = tmp / att.filename
-            await att.save(src)
+                rbxmx = src
+                if src.suffix.lower() == ".rbxm":
+                    rbxmx = tmp / (src.stem + ".rbxmx")
+                    try:
+                        convert_rbxm_to_rbxmx(src, rbxmx)
+                    except Exception as e:
+                        await message.reply(f"❌ RBXM conversion failed:\n```{str(e)[:1800]}```")
+                        continue
 
-            rbxmx = src
-            if src.suffix == ".rbxm":
-                rbxmx = tmp / (src.stem + ".rbxmx")
                 try:
-                    convert_rbxm_to_rbxmx(src, rbxmx)
+                    text, node_count, truncated = build_rbxmx_hierarchy_text(rbxmx)
                 except Exception as e:
-                    await message.reply(f"❌ RBXM conversion failed:\n```{e}```")
-                    return
+                    await message.reply(f"❌ Failed to parse model:\n```{str(e)[:1800]}```")
+                    continue
 
-            try:
-                nodes, edges = parse_rbxmx_tree(rbxmx)
-            except Exception as e:
-                await message.reply(f"❌ Failed to parse model:\n```{e}```")
-                return
+                title = f"🧩 RBX Hierarchy: {att.filename}"
+                header = f"Instances: {node_count}" + (" (truncated)" if truncated else "")
+                block = f"```text\n{text}\n```"
 
-            svg_path = tmp / "tree"
-            render_tree_svg(nodes, edges, svg_path)
+                if len(block) <= 3800:
+                    embed = discord.Embed(
+                        title=title,
+                        description=f"{header}\n\n{block}"
+                    )
+                    await message.reply(embed=embed)
+                else:
+                    out = tmp / (Path(att.filename).stem + ".hierarchy.txt")
+                    out.write_text(text, encoding="utf-8")
 
-            file = discord.File(f"{svg_path}.svg", filename="rbx_tree.svg")
-
-            embed = discord.Embed(
-                title="🧩 Roblox Model Preview",
-                description=(
-                    f"**Instances:** {len(nodes)}\n"
-                    f"**Links:** {len(edges)}\n"
-                    + ("⚠️ Truncated" if len(nodes) >= MAX_RBX_NODES else "")
-                ),
-                color=0x9b6cff
-            )
-            embed.set_image(url="attachment://rbx_tree.svg")
-
-            await message.reply(embed=embed, file=file)
+                    embed = discord.Embed(
+                        title=title,
+                        description=f"{header}\n\nToo large to display inline, attached as a file."
+                    )
+                    await message.reply(embed=embed, file=discord.File(out))
 
 client.run(os.getenv("DISCORD_TOKEN"))
