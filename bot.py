@@ -336,18 +336,29 @@ async def on_message(message: discord.Message):
                         text, node_count, truncated = build_rbxmx_hierarchy_text(src)
 
                     else:  # .rbxm
-                        out = subprocess.check_output(
+                        proc = subprocess.run(
                             [
                                 str(RBXMK_PATH),
                                 "run",
                                 str(RBX_HIERARCHY_LUA),
                                 str(src),
                             ],
+                            capture_output=True,
                             text=True,
                         )
-                        nodes = json.loads(out)
 
-                        nodes = json.loads(out)
+                        stdout = proc.stdout.strip()
+                        stderr = proc.stderr.strip()
+
+                        if proc.returncode != 0 or not stdout:
+                            await message.reply(
+                                "❌ RBXM parse failed.\n"
+                                f"**exit code:** {proc.returncode}\n"
+                                f"**stderr:**\n```{stderr[:1800]}```"
+                            )
+                            continue
+
+                        nodes = json.loads(stdout)
                         children = defaultdict(list)
                         root_nodes = []
 
