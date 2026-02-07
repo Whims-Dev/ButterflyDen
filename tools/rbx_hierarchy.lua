@@ -7,7 +7,7 @@ local nextId = 0
 
 local function walk(inst, parent)
     local id = nextId
-    nextId += 1
+    nextId = nextId + 1
 
     table.insert(nodes, {
         id = id,
