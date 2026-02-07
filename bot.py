@@ -14,6 +14,8 @@ from graphviz import Digraph
 load_dotenv()
 
 intents = discord.Intents.default()
+intents.message_content = True
+
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 DOWNLOAD_LOCK = asyncio.Lock()
