@@ -339,6 +339,7 @@ async def on_message(message: discord.Message):
                                 str(RBXMK_PATH),
                                 "run",
                                 str(RBX_HIERARCHY_LUA),
+                                "--",
                                 str(src),
                             ],
                             capture_output=True,
