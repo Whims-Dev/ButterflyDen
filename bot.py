@@ -330,11 +330,9 @@ async def on_message(message: discord.Message):
                 src = tmp / att.filename
                 await att.save(src)
 
-                rbxmx = src
                 try:
                     if src.suffix.lower() == ".rbxmx":
                         text, node_count, truncated = build_rbxmx_hierarchy_text(src)
-
                     else:  # .rbxm
                         proc = subprocess.run(
                             [
