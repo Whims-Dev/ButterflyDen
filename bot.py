@@ -11,6 +11,7 @@ from jobs.job import Job
 import tempfile
 import xml.etree.ElementTree as ET
 import json
+import aiohttp
 from collections import defaultdict
 
 load_dotenv()
@@ -227,11 +228,25 @@ async def mp3(interaction: discord.Interaction, url: str):
 
 @tree.command(
     name="emitmodule",
-    description="Reply with the releases page for VFX Forge's emit module"
+    description="Reply with the latest release rbxm file for VFX Forge's emit module"
 )
-@app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+@app_commands.allowed_contexts(dms=True, guilds=True, private_channels=True)
 async def emitmodule(interaction: discord.Interaction):
-    await interaction.response.send_message(content="https://github.com/zilibobi/forge-vfx/releases")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://api.github.com/repos/zilibobi/forge-vfx/releases/latest",
+            headers={"Accept": "application/vnd.github+json"}
+        ) as resp:
+            data = await resp.json()
+
+    for asset in data.get("assets", []):
+        if asset["name"].endswith(".rbxm"):
+            await interaction.response.send_message(asset["browser_download_url"])
+            return
+
+    await interaction.response.send_message(
+        "I couldn't find an `.rbxm` file in the latest release"
+    )
 
 @tree.command(
     name="download",
