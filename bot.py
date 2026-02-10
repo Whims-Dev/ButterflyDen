@@ -25,7 +25,7 @@ from listeners import attachments
 for module in (general, media, roblox):
     module.setup(tree)
 
-for module in (attachments):
+for module in (attachments,):
     module.setup(client)
 
 client.run(os.getenv("DISCORD_TOKEN"))
