@@ -144,6 +144,7 @@ def build_rbxmx_hierarchy_text(rbxmx_path: Path):
     return "\n".join(lines), node_count, truncated
 
 @tree.command(name="ping", description="Check if the bot is alive")
+@app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("pong")
 
@@ -167,6 +168,7 @@ async def about(interaction: discord.Interaction):
     description="Download audio as MP3"
 )
 @app_commands.describe(url="Media URL (YouTube, Twitter video, etc.)")
+@app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
 async def mp3(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
@@ -224,10 +226,20 @@ async def mp3(interaction: discord.Interaction, url: str):
             job.cleanup()
 
 @tree.command(
+    name="emitmodule",
+    description="Reply with the releases page for VFX Forge's emit module"
+)
+@app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+async def emitmodule(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    interaction.response.send_message("https://github.com/zilibobi/forge-vfx/releases")
+
+@tree.command(
     name="download",
     description="Download media (video or images)"
 )
 @app_commands.describe(url="Media URL (YouTube, Twitter, Instagram, etc.)")
+@app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
 async def download(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
