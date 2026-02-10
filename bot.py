@@ -12,6 +12,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import json
 import aiohttp
+import io
 from collections import defaultdict
 
 load_dotenv()
