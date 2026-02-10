@@ -232,7 +232,7 @@ async def mp3(interaction: discord.Interaction, url: str):
 @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
 async def emitmodule(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
-    interaction.response.send_message("https://github.com/zilibobi/forge-vfx/releases")
+    interaction.edit_original_response("https://github.com/zilibobi/forge-vfx/releases")
 
 @tree.command(
     name="download",
