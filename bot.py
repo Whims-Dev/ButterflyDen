@@ -232,20 +232,30 @@ async def mp3(interaction: discord.Interaction, url: str):
 )
 @app_commands.allowed_contexts(dms=True, guilds=True, private_channels=True)
 async def emitmodule(interaction: discord.Interaction):
+    await interaction.response.defer()
+
     async with aiohttp.ClientSession() as session:
         async with session.get(
             "https://api.github.com/repos/zilibobi/forge-vfx/releases/latest",
             headers={"Accept": "application/vnd.github+json"}
         ) as resp:
-            data = await resp.json()
+            release = await resp.json()
 
-    for asset in data.get("assets", []):
-        if asset["name"].endswith(".rbxm"):
-            await interaction.response.send_message(asset["browser_download_url"])
-            return
+        for asset in release.get("assets", []):
+            if asset["name"].endswith(".rbxm"):
+                async with session.get(asset["browser_download_url"]) as file_resp:
+                    file_bytes = await file_resp.read()
 
-    await interaction.response.send_message(
-        "I couldn't find an `.rbxm` file in the latest release"
+                file = discord.File(
+                    fp=io.BytesIO(file_bytes),
+                    filename=asset["name"]
+                )
+
+                await interaction.followup.send(file=file)
+                return
+
+    await interaction.followup.send(
+        "I couldn’t find an `.rbxm` file in the latest release"
     )
 
 @tree.command(
