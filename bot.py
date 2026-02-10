@@ -172,7 +172,7 @@ async def about(interaction: discord.Interaction):
 async def mp3(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
-            "⏳ Busy. Try again shortly.",
+            content="⏳ Busy. Try again shortly.",
             ephemeral=True
         )
         return
@@ -231,8 +231,7 @@ async def mp3(interaction: discord.Interaction, url: str):
 )
 @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
 async def emitmodule(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
-    interaction.edit_original_response("https://github.com/zilibobi/forge-vfx/releases")
+    await interaction.response.send_message(content="https://github.com/zilibobi/forge-vfx/releases")
 
 @tree.command(
     name="download",
@@ -243,7 +242,7 @@ async def emitmodule(interaction: discord.Interaction):
 async def download(interaction: discord.Interaction, url: str):
     if DOWNLOAD_LOCK.locked():
         await interaction.response.send_message(
-            "⏳ Busy. Try again shortly.",
+            content="⏳ Busy. Try again shortly.",
             ephemeral=True
         )
         return
