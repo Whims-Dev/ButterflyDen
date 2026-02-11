@@ -3,7 +3,9 @@ import time
 import discord
 from discord import app_commands
 
-from shared import *
+from jobs.job import Job
+from shared import DOWNLOAD_LOCK
+from media import *
 
 def setup(tree: app_commands.CommandTree):
     @tree.command(

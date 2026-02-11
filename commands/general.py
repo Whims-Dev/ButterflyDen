@@ -18,6 +18,5 @@ def setup(tree: app_commands.CommandTree):
                 "Created by **Whims-Dev**\n\n"
                 "🔗 GitHub: https://github.com/Whims-Dev\n"
                 "🌐 Portfolio & Availability: https://discord.gg/Zfd8Jx4Eq2\n"
-            ),
-            ephemeral=True
+            )
         )
