@@ -7,6 +7,8 @@ from jobs.job import Job
 from shared import DOWNLOAD_LOCK
 from media import *
 
+MAX_DURATION_SECONDS = 20 * 60
+
 def setup(tree: app_commands.CommandTree):
     @tree.command(
         name="mp3",
@@ -116,6 +118,15 @@ def setup(tree: app_commands.CommandTree):
             start = time.monotonic()
 
             try:
+                duration = await get_duration(url)
+
+                if duration is not None and duration > MAX_DURATION_SECONDS:
+                    minutes = duration / 60
+                    await interaction.edit_original_response(
+                        content=f"⚠️ Video too long ({minutes:.1f} min, max {MAX_DURATION_SECONDS // 60} min)."
+                    )
+                    return
+
                 result = await run_ytdlp([
                     "--no-playlist",
                     "--paths", str(job.path),
