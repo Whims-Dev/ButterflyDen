@@ -29,7 +29,7 @@ def setup(tree: app_commands.CommandTree):
             start = time.monotonic()
 
             try:
-                result = run_ytdlp([
+                result = await run_ytdlp([
                     "--no-playlist",
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
@@ -53,7 +53,7 @@ def setup(tree: app_commands.CommandTree):
                         )
                         return
 
-                    result = run_ytdlp([
+                    result = await run_ytdlp([
                         "--no-playlist",
                         "--paths", str(job.path),
                         "--skip-download",
@@ -116,7 +116,7 @@ def setup(tree: app_commands.CommandTree):
             start = time.monotonic()
 
             try:
-                result = run_ytdlp([
+                result = await run_ytdlp([
                     "--no-playlist",
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
@@ -130,7 +130,7 @@ def setup(tree: app_commands.CommandTree):
                         )
                         return
 
-                    result = run_ytdlp([
+                    result = await run_ytdlp([
                         "--no-playlist",
                         "--paths", str(job.path),
                         "--skip-download",
@@ -160,7 +160,7 @@ def setup(tree: app_commands.CommandTree):
                     if len(videos) == 1:
                         compressed = job.path / "compressed.mp4"
 
-                        if compress_video(videos[0], compressed):
+                        if await compress_video(videos[0], compressed):
                             new_size = compressed.stat().st_size / (1024 * 1024)
 
                             if new_size <= 25:
