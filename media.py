@@ -1,15 +1,18 @@
+import asyncio
 import subprocess
 from pathlib import Path
 
-def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(
+async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
+    return await asyncio.to_thread(
+        subprocess.run,
         ["yt-dlp", *args],
         capture_output=True,
         text=True
     )
 
-def compress_video(input_path: Path, output_path: Path) -> bool:
-    result = subprocess.run(
+async def compress_video(input_path: Path, output_path: Path) -> bool:
+    result = await asyncio.to_thread(
+        subprocess.run,
         [
             "ffmpeg",
             "-y",
@@ -26,4 +29,3 @@ def compress_video(input_path: Path, output_path: Path) -> bool:
         text=True
     )
     return result.returncode == 0
-
