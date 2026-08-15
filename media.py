@@ -5,7 +5,11 @@ from pathlib import Path
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     return await asyncio.to_thread(
         subprocess.run,
-        ["yt-dlp", *args],
+        [
+            "yt-dlp",
+            "--extractor-args", "youtube:player_client=android",
+            *args
+        ],
         capture_output=True,
         text=True
     )
