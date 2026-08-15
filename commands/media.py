@@ -30,8 +30,6 @@ def setup(tree: app_commands.CommandTree):
 
             try:
                 result = run_ytdlp([
-                    "-x",
-                    "--audio-format", "mp3",
                     "--no-playlist",
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
@@ -39,10 +37,37 @@ def setup(tree: app_commands.CommandTree):
                 ])
 
                 if result.returncode != 0:
-                    await interaction.edit_original_response(
-                        content="❌ Failed to extract audio."
+                    if "Unsupported URL" in result.stderr:
+                        await interaction.edit_original_response(
+                            content="❌ Unsupported site."
+                        )
+                        return
+
+                    is_image_capable_site = any(
+                        domain in url for domain in ("twitter.com", "x.com")
                     )
-                    return
+
+                    if not is_image_capable_site:
+                        await interaction.edit_original_response(
+                            content="❌ Failed to extract media."
+                        )
+                        return
+
+                    result = run_ytdlp([
+                        "--no-playlist",
+                        "--paths", str(job.path),
+                        "--skip-download",
+                        "--write-all-thumbnails",
+                        "--convert-thumbnails", "jpg",
+                        "-o", "%(title)s_%(id)s.%(ext)s",
+                        url
+                    ])
+
+                    if result.returncode != 0:
+                        await interaction.edit_original_response(
+                            content="❌ Failed to extract media."
+                        )
+                        return
 
                 files = list(job.path.glob("*.mp3"))
                 if not files:
