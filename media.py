@@ -2,6 +2,9 @@ import asyncio
 import subprocess
 from pathlib import Path
 
+def is_tiktok(url: str) -> bool:
+    return "tiktok.com" in url.lower()
+
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     return await asyncio.to_thread(
         subprocess.run,

@@ -14,7 +14,7 @@ def setup(tree: app_commands.CommandTree):
         name="mp3",
         description="Download audio as MP3"
     )
-    @app_commands.describe(url="Media URL (YouTube, Twitter video, etc.)")
+    @app_commands.describe(url="Media URL (YouTube, TikTok, Twitter video, etc.)")
     @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
     async def mp3(interaction: discord.Interaction, url: str):
         if DOWNLOAD_LOCK.locked():
@@ -33,6 +33,9 @@ def setup(tree: app_commands.CommandTree):
             try:
                 result = await run_ytdlp([
                     "--no-playlist",
+                    "-x",
+                    "--audio-format", "mp3",
+                    "--audio-quality", "0",
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
                     url
@@ -101,7 +104,7 @@ def setup(tree: app_commands.CommandTree):
         name="download",
         description="Download media (video or images)"
     )
-    @app_commands.describe(url="Media URL (YouTube, Twitter, Instagram, etc.)")
+    @app_commands.describe(url="Media URL (YouTube, TikTok, Twitter, Instagram, etc.)")
     @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
     async def download(interaction: discord.Interaction, url: str):
         if DOWNLOAD_LOCK.locked():
@@ -129,6 +132,7 @@ def setup(tree: app_commands.CommandTree):
 
                 result = await run_ytdlp([
                     "--no-playlist",
+                    *(["-S", "vcodec:h264"] if is_tiktok(url) else []),
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
                     url
