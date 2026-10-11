@@ -8,6 +8,7 @@ from shared import DOWNLOAD_LOCK
 from media import *
 
 MAX_DURATION_SECONDS = 20 * 60
+MAX_GIF_SECONDS = 30
 
 def setup(tree: app_commands.CommandTree):
     @tree.command(
@@ -169,6 +170,25 @@ def setup(tree: app_commands.CommandTree):
                         content="❌ No media found."
                     )
                     return
+
+                if (
+                    is_twitter(url)
+                    and len(files) == 1
+                    and len(videos) == 1
+                    and (duration is None or duration <= MAX_GIF_SECONDS)
+                    and not await has_audio(videos[0])
+                ):
+                    gif = job.path / "animation.gif"
+                    if (
+                        await video_to_gif(videos[0], gif)
+                        and gif.stat().st_size / (1024 * 1024) <= 25
+                    ):
+                        elapsed = max(round(time.monotonic() - start, 2), 0.01)
+                        await interaction.edit_original_response(
+                            content=f"`Download time: {elapsed}s`",
+                            attachments=[discord.File(gif)]
+                        )
+                        return
 
                 total_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
                 if total_mb > 25:
