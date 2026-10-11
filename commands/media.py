@@ -9,6 +9,7 @@ from media import *
 
 MAX_DURATION_SECONDS = 20 * 60
 MAX_GIF_SECONDS = 30
+MAX_GIF_LENGTH = 15
 
 def setup(tree: app_commands.CommandTree):
     @tree.command(
@@ -217,6 +218,96 @@ def setup(tree: app_commands.CommandTree):
                 await interaction.edit_original_response(
                     content=f"`Download time: {elapsed}s`",
                     attachments=discord_files
+                )
+
+            finally:
+                job.cleanup()
+
+    @tree.command(
+        name="gif",
+        description="Turn a video into a GIF"
+    )
+    @app_commands.describe(
+        url="Media URL (YouTube, TikTok, Twitter, etc.)",
+        start="Where to start, e.g. 30 or 1:30 (default: beginning)",
+        length=f"Seconds to capture, 1-{MAX_GIF_LENGTH} (default: 8)"
+    )
+    @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+    async def gif(
+        interaction: discord.Interaction,
+        url: str,
+        start: str = "0",
+        length: app_commands.Range[int, 1, MAX_GIF_LENGTH] = 8
+    ):
+        start_seconds = parse_timestamp(start)
+        if start_seconds is None:
+            await interaction.response.send_message(
+                content="❌ Invalid start time. Use seconds (`30`) or `1:30`.",
+                ephemeral=True
+            )
+            return
+
+        if DOWNLOAD_LOCK.locked():
+            await interaction.response.send_message(
+                content="⏳ Busy. Try again shortly.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        async with DOWNLOAD_LOCK:
+            job = Job()
+            start_time = time.monotonic()
+
+            try:
+                end_seconds = start_seconds + length
+                result = await run_ytdlp([
+                    "--no-playlist",
+                    *(["-S", "vcodec:h264"] if is_tiktok(url) else []),
+                    "--download-sections", f"*{start_seconds}-{end_seconds}",
+                    "--force-keyframes-at-cuts",
+                    "--paths", str(job.path),
+                    "-o", "%(id)s.%(ext)s",
+                    url
+                ])
+
+                if result.returncode != 0:
+                    if "Unsupported URL" in result.stderr:
+                        await interaction.edit_original_response(
+                            content="❌ Unsupported site."
+                        )
+                    else:
+                        await interaction.edit_original_response(
+                            content="❌ Failed to extract media."
+                        )
+                    return
+
+                videos = [
+                    f for f in job.path.iterdir()
+                    if f.is_file() and f.suffix.lower() in {".mp4", ".mkv", ".webm"}
+                ]
+                if not videos:
+                    await interaction.edit_original_response(
+                        content="❌ No video found."
+                    )
+                    return
+
+                output = job.path / "animation.gif"
+                for width in (480, 320, 240):
+                    if (
+                        await video_to_gif(videos[0], output, width)
+                        and output.stat().st_size / (1024 * 1024) <= 25
+                    ):
+                        elapsed = max(round(time.monotonic() - start_time, 2), 0.01)
+                        await interaction.edit_original_response(
+                            content=f"`Download time: {elapsed}s`",
+                            attachments=[discord.File(output)]
+                        )
+                        return
+
+                await interaction.edit_original_response(
+                    content="⚠️ GIF too large, even when shrunk. Try a shorter length."
                 )
 
             finally:

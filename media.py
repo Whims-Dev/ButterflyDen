@@ -76,7 +76,7 @@ async def has_audio(path: Path) -> bool:
     )
     return result.returncode != 0 or bool(result.stdout.strip())
 
-async def video_to_gif(input_path: Path, output_path: Path) -> bool:
+async def video_to_gif(input_path: Path, output_path: Path, width: int = 480) -> bool:
     result = await asyncio.to_thread(
         subprocess.run,
         [
@@ -84,7 +84,7 @@ async def video_to_gif(input_path: Path, output_path: Path) -> bool:
             "-y",
             "-i", str(input_path),
             "-vf",
-            "fps=15,scale='min(480,iw)':-1:flags=lanczos,split[a][b];"
+            f"fps=15,scale='min({width},iw)':-1:flags=lanczos,split[a][b];"
             "[a]palettegen[p];[b][p]paletteuse",
             "-loop", "0",
             str(output_path)
@@ -93,3 +93,14 @@ async def video_to_gif(input_path: Path, output_path: Path) -> bool:
         text=True
     )
     return result.returncode == 0
+
+
+def parse_timestamp(text: str) -> float | None:
+    """Parse "90", "1:30" or "1:02:03" into seconds."""
+    try:
+        seconds = 0.0
+        for part in text.strip().split(":"):
+            seconds = seconds * 60 + float(part)
+        return seconds if seconds >= 0 else None
+    except ValueError:
+        return None
