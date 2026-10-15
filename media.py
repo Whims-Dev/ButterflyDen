@@ -139,6 +139,29 @@ async def get_media_duration(path: Path) -> float | None:
     except ValueError:
         return None
 
+def slide_indicator_filter(count: int, per_image: float) -> str:
+    """Row of dots at the bottom; the dot for the current slide is bigger and brighter."""
+    step = min(28, 640 // count)
+    size = max(step // 2, 6)
+    active = size + 6
+    y = 1215
+    x0 = (720 - (count - 1) * step) // 2
+
+    parts = []
+    for i in range(count):
+        cx = x0 + i * step
+        parts.append(
+            f"drawbox=x={cx - size // 2}:y={y - size // 2}:w={size}:h={size}:color=white@0.45:t=fill"
+        )
+    for i in range(count):
+        cx = x0 + i * step
+        start, end = i * per_image, (i + 1) * per_image
+        parts.append(
+            f"drawbox=x={cx - active // 2}:y={y - active // 2}:w={active}:h={active}:color=white@1:t=fill:"
+            f"enable='gte(t,{start - 0.01:.3f})*lt(t,{end - 0.01:.3f})'"
+        )
+    return ",".join(parts)
+
 async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
     """Show each image for an equal share of total_seconds, with audio underneath."""
     per_image = total_seconds / len(images)
@@ -155,10 +178,16 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path)]
     if audio is not None:
         cmd += ["-i", str(audio)]
-    cmd += [
-        "-vf",
+    video_filter = (
         "scale=720:1280:force_original_aspect_ratio=decrease,"
-        "pad=720:1280:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        "pad=720:1280:(ow-iw)/2:(oh-ih)/2"
+    )
+    if len(images) > 1:
+        video_filter += "," + slide_indicator_filter(len(images), per_image)
+    video_filter += ",format=yuv420p"
+
+    cmd += [
+        "-vf", video_filter,
         "-r", "30",
         "-c:v", "libx264",
         "-preset", "fast",
