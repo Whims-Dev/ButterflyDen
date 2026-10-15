@@ -139,28 +139,36 @@ async def get_media_duration(path: Path) -> float | None:
     except ValueError:
         return None
 
-def slide_indicator_filter(count: int, per_image: float) -> str:
-    """Row of dots at the bottom; the dot for the current slide is bigger and brighter."""
-    step = min(28, 640 // count)
-    size = max(step // 2, 6)
-    active = size + 6
-    y = 1215
-    x0 = (720 - (count - 1) * step) // 2
+INDICATOR_WIDTH = 640
+INDICATOR_HEIGHT = 24
+INDICATOR_FPS = 10
 
-    parts = []
-    for i in range(count):
-        cx = x0 + i * step
-        parts.append(
-            f"drawbox=x={cx - size // 2}:y={y - size // 2}:w={size}:h={size}:color=white@0.45:t=fill"
-        )
-    for i in range(count):
-        cx = x0 + i * step
-        start, end = i * per_image, (i + 1) * per_image
-        parts.append(
-            f"drawbox=x={cx - active // 2}:y={y - active // 2}:w={active}:h={active}:color=white@1:t=fill:"
-            f"enable='gte(t,{start - 0.01:.3f})*lt(t,{end - 0.01:.3f})'"
-        )
-    return ",".join(parts)
+def slide_indicator_source(count: int, per_image: float, total_seconds: float) -> str:
+    """Filter chain producing a transparent strip of round dots, one per slide.
+
+    The current slide's dot is bigger and brighter. Drawn per pixel with geq so
+    no font or image library is needed.
+    """
+    step = min(28, INDICATOR_WIDTH // count)
+    radius = max(step / 4, 3)
+    active_radius = radius + 3
+    x0 = (INDICATOR_WIDTH - (count - 1) * step) / 2
+    cy = INDICATOR_HEIGHT / 2
+
+    # which slide is showing at time T (small offset so boundaries don't flicker)
+    current = f"clip(floor((T+0.01)/{per_image:.4f}),0,{count - 1})"
+    nearest = f"clip(round((X-{x0})/{step}),0,{count - 1})"
+    is_active = f"eq({nearest},{current})"
+    dist = f"hypot(X-({x0}+{nearest}*{step}),Y-{cy})"
+    edge = f"if({is_active},{active_radius},{radius})"
+    coverage = f"clip({edge}-{dist}+0.5,0,1)"
+    brightness = f"if({is_active},1,0.45)"
+
+    return (
+        f"color=c=white:s={INDICATOR_WIDTH}x{INDICATOR_HEIGHT}:r={INDICATOR_FPS}:d={total_seconds:.3f},"
+        f"format=yuva444p,"
+        f"geq=lum=255:cb=128:cr=128:a='255*{coverage}*{brightness}'"
+    )
 
 async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
     """Show each image for an equal share of total_seconds, with audio underneath."""
@@ -178,16 +186,23 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path)]
     if audio is not None:
         cmd += ["-i", str(audio)]
-    video_filter = (
+    frame = (
         "scale=720:1280:force_original_aspect_ratio=decrease,"
         "pad=720:1280:(ow-iw)/2:(oh-ih)/2"
     )
     if len(images) > 1:
-        video_filter += "," + slide_indicator_filter(len(images), per_image)
-    video_filter += ",format=yuv420p"
+        graph = (
+            f"[0:v]{frame}[bg];"
+            f"{slide_indicator_source(len(images), per_image, total_seconds)}[dots];"
+            f"[bg][dots]overlay=x=(W-w)/2:y=1203:format=auto,format=yuv420p[v]"
+        )
+    else:
+        graph = f"[0:v]{frame},format=yuv420p[v]"
 
+    cmd += ["-filter_complex", graph, "-map", "[v]"]
+    if audio is not None:
+        cmd += ["-map", "1:a"]
     cmd += [
-        "-vf", video_filter,
         "-r", "30",
         "-c:v", "libx264",
         "-preset", "fast",
