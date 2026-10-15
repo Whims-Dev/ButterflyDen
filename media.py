@@ -200,6 +200,29 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
     """Show each image for an equal share of total_seconds, with audio underneath."""
     per_image = total_seconds / len(images)
 
+    # Slides often differ in size, and a mid-stream size change makes ffmpeg
+    # restart its filter graph and drop slides, so fit each one to the frame first.
+    fitted = []
+    for image in images:
+        target = image.with_name(f"fit_{image.stem}.png")
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "ffmpeg", "-y", "-i", str(image),
+                "-vf",
+                "scale=720:1280:force_original_aspect_ratio=decrease,"
+                "pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                "-frames:v", "1",
+                str(target)
+            ],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return False
+        fitted.append(target)
+    images = fitted
+
     list_path = output_path.parent / "slides.txt"
     lines = []
     for image in images:
@@ -212,18 +235,14 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path)]
     if audio is not None:
         cmd += ["-i", str(audio)]
-    frame = (
-        "scale=720:1280:force_original_aspect_ratio=decrease,"
-        "pad=720:1280:(ow-iw)/2:(oh-ih)/2"
-    )
     if len(images) > 1:
         graph = (
-            f"[0:v]{frame},fps=30[bg];"
+            f"[0:v]fps=30[bg];"
             f"{slide_indicator_source(len(images), per_image, total_seconds)}[dots];"
             f"[bg][dots]overlay=x=(W-w)/2:y=1203:format=auto,format=yuv420p[v]"
         )
     else:
-        graph = f"[0:v]{frame},format=yuv420p[v]"
+        graph = "[0:v]format=yuv420p[v]"
 
     cmd += ["-filter_complex", graph, "-map", "[v]"]
     if audio is not None:
