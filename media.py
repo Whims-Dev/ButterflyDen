@@ -1,6 +1,9 @@
 import asyncio
 import subprocess
 import sys
+from urllib.parse import urlsplit, urlunsplit
+
+import aiohttp
 from pathlib import Path
 
 def is_tiktok(url: str) -> bool:
@@ -8,6 +11,28 @@ def is_tiktok(url: str) -> bool:
 
 def is_twitter(url: str) -> bool:
     return any(d in url.lower() for d in ("twitter.com", "x.com"))
+
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+    )
+}
+
+async def resolve_tiktok_url(url: str) -> str:
+    """Follow TikTok share links (tiktok.com/t/..., vm.tiktok.com/...) to the real post URL."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(headers=BROWSER_HEADERS, timeout=timeout) as session:
+            async with session.get(url, allow_redirects=True) as response:
+                final = str(response.url)
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return url
+
+    parts = urlsplit(final)
+    if "tiktok.com" not in parts.netloc or parts.path in ("", "/"):
+        return url
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     return await asyncio.to_thread(

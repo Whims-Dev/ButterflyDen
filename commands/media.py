@@ -94,6 +94,9 @@ def setup(tree: app_commands.CommandTree):
 
         await interaction.response.defer(thinking=True)
 
+        if is_tiktok(url):
+            url = await resolve_tiktok_url(url)
+
         async with DOWNLOAD_LOCK:
             job = Job()
             start = time.monotonic()
@@ -183,6 +186,9 @@ def setup(tree: app_commands.CommandTree):
             return
 
         await interaction.response.defer(thinking=True)
+
+        if is_tiktok(url):
+            url = await resolve_tiktok_url(url)
 
         async with DOWNLOAD_LOCK:
             job = Job()
@@ -335,6 +341,9 @@ def setup(tree: app_commands.CommandTree):
             return
 
         await interaction.response.defer(thinking=True)
+
+        if is_tiktok(url):
+            url = await resolve_tiktok_url(url)
 
         async with DOWNLOAD_LOCK:
             job = Job()
