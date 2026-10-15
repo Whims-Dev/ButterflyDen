@@ -141,7 +141,7 @@ async def get_media_duration(path: Path) -> float | None:
 
 INDICATOR_WIDTH = 640
 INDICATOR_HEIGHT = 24
-INDICATOR_FPS = 10
+INDICATOR_FPS = 15
 
 def slide_indicator_source(count: int, per_image: float, total_seconds: float) -> str:
     """Filter chain producing a transparent strip of round dots, one per slide.
@@ -155,8 +155,9 @@ def slide_indicator_source(count: int, per_image: float, total_seconds: float) -
     x0 = (INDICATOR_WIDTH - (count - 1) * step) / 2
     cy = INDICATOR_HEIGHT / 2
 
-    # which slide is showing at time T (small offset so boundaries don't flicker)
-    current = f"clip(floor((T+0.01)/{per_image:.4f}),0,{count - 1})"
+    # which slide is showing at time T; the strip runs at INDICATOR_FPS, so offset
+    # by half a strip frame to keep boundaries within half a frame of the video
+    current = f"clip(floor((T+{0.5 / INDICATOR_FPS:.4f})/{per_image:.4f}),0,{count - 1})"
     nearest = f"clip(round((X-{x0})/{step}),0,{count - 1})"
     is_active = f"eq({nearest},{current})"
     dist = f"hypot(X-({x0}+{nearest}*{step}),Y-{cy})"
@@ -192,7 +193,7 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
     )
     if len(images) > 1:
         graph = (
-            f"[0:v]{frame}[bg];"
+            f"[0:v]{frame},fps=30[bg];"
             f"{slide_indicator_source(len(images), per_image, total_seconds)}[dots];"
             f"[bg][dots]overlay=x=(W-w)/2:y=1203:format=auto,format=yuv420p[v]"
         )
