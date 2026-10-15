@@ -12,6 +12,8 @@ MAX_DURATION_SECONDS = 20 * 60
 MAX_GIF_SECONDS = 30
 MAX_GIF_LENGTH = 15
 
+MAX_SLIDESHOW_SECONDS = 90
+SECONDS_PER_IMAGE = 3
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".opus"}
 
@@ -31,6 +33,31 @@ async def send_tiktok_gallery(interaction: discord.Interaction, job: Job, url: s
     audio = [f for f in files if f.suffix.lower() in AUDIO_SUFFIXES]
     if not images:
         return False
+
+    # plain names so the ffmpeg concat list needs no escaping
+    simple_images = []
+    for i, image in enumerate(images, start=1):
+        renamed = image.with_name(f"slide_{i:03d}{image.suffix.lower()}")
+        image.rename(renamed)
+        simple_images.append(renamed)
+    images = simple_images
+
+    audio_length = await get_media_duration(audio[0]) if audio else None
+    total_seconds = min(
+        audio_length if audio_length else len(images) * SECONDS_PER_IMAGE,
+        MAX_SLIDESHOW_SECONDS
+    )
+    slideshow = job.path / "slideshow.mp4"
+    if (
+        await make_slideshow(images, audio[0] if audio else None, slideshow, total_seconds)
+        and slideshow.stat().st_size / (1024 * 1024) <= 25
+    ):
+        elapsed = max(round(time.monotonic() - start, 2), 0.01)
+        await interaction.edit_original_response(
+            content=f"`Download time: {elapsed}s`",
+            attachments=[discord.File(slideshow)]
+        )
+        return True
 
     attachments = images[:9] + audio[:1]
     total_mb = sum(f.stat().st_size for f in attachments) / (1024 * 1024)

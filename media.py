@@ -119,3 +119,54 @@ async def run_gallerydl(url: str, directory: Path) -> bool:
         text=True
     )
     return result.returncode == 0
+
+
+async def get_media_duration(path: Path) -> float | None:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
+    """Show each image for an equal share of total_seconds, with audio underneath."""
+    per_image = total_seconds / len(images)
+
+    list_path = output_path.parent / "slides.txt"
+    lines = []
+    for image in images:
+        lines.append(f"file '{image.name}'")
+        lines.append(f"duration {per_image:.3f}")
+    # concat demuxer ignores the last duration unless the file is repeated
+    lines.append(f"file '{images[-1].name}'")
+    list_path.write_text(chr(10).join(lines), encoding="utf-8")
+
+    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path)]
+    if audio is not None:
+        cmd += ["-i", str(audio)]
+    cmd += [
+        "-vf",
+        "scale=720:1280:force_original_aspect_ratio=decrease,"
+        "pad=720:1280:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        "-r", "30",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "28",
+    ]
+    if audio is not None:
+        cmd += ["-c:a", "aac", "-b:a", "128k"]
+    cmd += ["-t", f"{total_seconds:.3f}", str(output_path)]
+
+    result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True)
+    return result.returncode == 0
