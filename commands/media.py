@@ -1,3 +1,4 @@
+import shutil
 import time
 
 import discord
@@ -10,6 +11,44 @@ from media import *
 MAX_DURATION_SECONDS = 20 * 60
 MAX_GIF_SECONDS = 30
 MAX_GIF_LENGTH = 15
+
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+AUDIO_SUFFIXES = {".mp3", ".m4a", ".opus"}
+
+async def send_tiktok_gallery(interaction: discord.Interaction, job: Job, url: str, start: float) -> bool:
+    """Fetch a TikTok photo post with gallery-dl and send its images plus audio."""
+    for item in job.path.iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+    if not await run_gallerydl(url, job.path):
+        return False
+
+    files = [f for f in job.path.rglob("*") if f.is_file()]
+    images = sorted(f for f in files if f.suffix.lower() in IMAGE_SUFFIXES)
+    audio = [f for f in files if f.suffix.lower() in AUDIO_SUFFIXES]
+    if not images:
+        return False
+
+    attachments = images[:9] + audio[:1]
+    total_mb = sum(f.stat().st_size for f in attachments) / (1024 * 1024)
+    if total_mb > 25:
+        attachments = images[:10]
+        total_mb = sum(f.stat().st_size for f in attachments) / (1024 * 1024)
+        if total_mb > 25:
+            await interaction.edit_original_response(
+                content=f"⚠️ Media too large ({total_mb:.1f} MB)."
+            )
+            return True
+
+    elapsed = max(round(time.monotonic() - start, 2), 0.01)
+    await interaction.edit_original_response(
+        content=f"`Download time: {elapsed}s`",
+        attachments=[discord.File(f) for f in attachments]
+    )
+    return True
 
 def setup(tree: app_commands.CommandTree):
     @tree.command(
@@ -123,6 +162,13 @@ def setup(tree: app_commands.CommandTree):
             start = time.monotonic()
 
             try:
+                if (
+                    is_tiktok(url)
+                    and "/photo/" in url
+                    and await send_tiktok_gallery(interaction, job, url, start)
+                ):
+                    return
+
                 duration = await get_duration(url)
 
                 if duration is not None and duration > MAX_DURATION_SECONDS:
@@ -147,6 +193,9 @@ def setup(tree: app_commands.CommandTree):
                         )
                         return
 
+                    if is_tiktok(url) and await send_tiktok_gallery(interaction, job, url, start):
+                        return
+
                     result = await run_ytdlp([
                         "--no-playlist",
                         "--paths", str(job.path),
@@ -165,6 +214,10 @@ def setup(tree: app_commands.CommandTree):
 
                 files = [f for f in job.path.iterdir() if f.is_file()]
                 videos = [f for f in files if f.suffix.lower() in {".mp4", ".mkv", ".webm"}]
+
+                # yt-dlp only returns the audio for TikTok slideshows
+                if is_tiktok(url) and not videos and await send_tiktok_gallery(interaction, job, url, start):
+                    return
 
                 if not files:
                     await interaction.edit_original_response(

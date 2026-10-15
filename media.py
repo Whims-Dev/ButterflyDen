@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 
 def is_tiktok(url: str) -> bool:
@@ -104,3 +105,17 @@ def parse_timestamp(text: str) -> float | None:
         return seconds if seconds >= 0 else None
     except ValueError:
         return None
+
+
+async def run_gallerydl(url: str, directory: Path) -> bool:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            sys.executable, "-m", "gallery_dl",
+            "--directory", str(directory),
+            url
+        ],
+        capture_output=True,
+        text=True
+    )
+    return result.returncode == 0
