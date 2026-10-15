@@ -196,9 +196,37 @@ def slide_indicator_source(count: int, per_image: float, total_seconds: float) -
         f"geq=lum=255:cb=128:cr=128:a='255*{coverage}*{brightness}'"
     )
 
+async def get_image_size(path: Path) -> tuple[int, int] | None:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    try:
+        width, height = result.stdout.strip().split(",")[:2]
+        return int(width), int(height)
+    except ValueError:
+        return None
+
 async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
     """Show each image for an equal share of total_seconds, with audio underneath."""
     per_image = total_seconds / len(images)
+
+    # Landscape frame when most slides are landscape, otherwise the usual vertical one
+    sizes = [await get_image_size(image) for image in images]
+    landscape = sum(1 for size in sizes if size and size[0] > size[1])
+    if landscape * 2 > len(images):
+        frame_w, frame_h = 1280, 720
+    else:
+        frame_w, frame_h = 720, 1280
 
     # Slides often differ in size, and a mid-stream size change makes ffmpeg
     # restart its filter graph and drop slides, so fit each one to the frame first.
@@ -210,8 +238,8 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
             [
                 "ffmpeg", "-y", "-i", str(image),
                 "-vf",
-                "scale=720:1280:force_original_aspect_ratio=decrease,"
-                "pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                f"scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease,"
+                f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2,setsar=1",
                 "-frames:v", "1",
                 str(target)
             ],
@@ -239,7 +267,7 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
         graph = (
             f"[0:v]fps=30[bg];"
             f"{slide_indicator_source(len(images), per_image, total_seconds)}[dots];"
-            f"[bg][dots]overlay=x=(W-w)/2:y=1203:format=auto,format=yuv420p[v]"
+            f"[bg][dots]overlay=x=(W-w)/2:y={frame_h - 77}:format=auto,format=yuv420p[v]"
         )
     else:
         graph = "[0:v]format=yuv420p[v]"
