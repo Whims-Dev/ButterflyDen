@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import re
@@ -68,11 +69,67 @@ async def curl(url: str, output: Path | None = None) -> tuple[int, str, bytes]:
     status, _, final_url = tail.decode(errors="replace").partition(" ")
     return (int(status) if status.isdigit() else 0), final_url.strip(), body
 
+REDDIT_EMBED_TYPE_RE = re.compile(r'"embed":\{[^}]*?"type":"(\w+)"')
+REDDIT_EMBED_MEDIA_RES = {
+    "image": re.compile(r'https://i\.redd\.it/[\w.-]+'),
+    "video": re.compile(r'https://v\.redd\.it/\w+'),
+}
+
+async def reddit_embed_link(post_path: str) -> str | None:
+    """Media link from the post's embed page, the public page Reddit offers for embedding posts."""
+    embed_url = f"https://embed.reddit.com{post_path}/"
+    body = None
+    for attempt in range(2):
+        status, _, body = await curl(embed_url)
+        if status == 200:
+            break
+        log.warning("Reddit: embed %s returned HTTP %s (attempt %s)", embed_url, status, attempt + 1)
+        body = None
+        if status != 429:
+            return None
+        await asyncio.sleep(8)
+    if body is None:
+        return None
+
+    text = html.unescape(body.decode("utf-8", errors="replace"))
+    kind = REDDIT_EMBED_TYPE_RE.search(text)
+    media_re = REDDIT_EMBED_MEDIA_RES.get(kind.group(1)) if kind else None
+    match = media_re.search(text) if media_re else None
+    if not match:
+        log.warning("Reddit: no image or video in the embed page %s (type %s)", embed_url, kind.group(1) if kind else None)
+        return None
+    return match.group(0)
+
+async def reddit_feed_link(post_path: str) -> str | None:
+    """Media link from the post's RSS feed. Reddit has announced it ends feeds on 2026-11-13."""
+    feed_url = f"https://www.reddit.com{post_path}/.rss"
+    text = None
+    # anonymous requests get a small rate limit; only 429 is worth retrying
+    for attempt in range(3):
+        status, _, body = await curl(feed_url)
+        if status == 200:
+            text = body.decode("utf-8", errors="replace")
+            break
+        log.warning("Reddit: feed %s returned HTTP %s (attempt %s)", feed_url, status, attempt + 1)
+        if status != 429:
+            return None
+        await asyncio.sleep(8)
+    if text is None:
+        return None
+
+    entry = ET.fromstring(text).find("{http://www.w3.org/2005/Atom}entry")
+    content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
+    match = REDDIT_LINK_RE.search(content or "")
+    if not match:
+        log.warning("Reddit: no media link in the feed for %s", feed_url)
+        return None
+    return match.group(1)
+
 async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
     """Find the media behind a Reddit link without logging in.
 
     Reddit blocks anonymous requests to its pages and API (so yt-dlp fails), but
-    a post's RSS feed, i.redd.it and v.redd.it are still reachable.
+    a post's embed page and RSS feed, i.redd.it and v.redd.it are still reachable.
     Returns ("image" | "video" | "external", url), or None if nothing was found.
     """
     try:
@@ -84,29 +141,13 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
             if "/comments/" not in parts.path:
                 log.warning("Reddit: %s went to %s (HTTP %s), which is not a post", url, final_url, status)
                 return None
-            feed_url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/.rss", "", ""))
-
-            text = None
-            # anonymous requests get a small rate limit; only 429 is worth retrying
-            for attempt in range(3):
-                status, _, body = await curl(feed_url)
-                if status == 200:
-                    text = body.decode("utf-8", errors="replace")
-                    break
-                log.warning("Reddit: feed %s returned HTTP %s (attempt %s)", feed_url, status, attempt + 1)
-                if status != 429:
-                    break
-                await asyncio.sleep(8)
-            if text is None:
+            post_path = parts.path.rstrip("/")
+            media_link = await reddit_embed_link(post_path)
+            if media_link is None:
+                media_link = await reddit_feed_link(post_path)
+            if media_link is None:
                 return None
-
-            entry = ET.fromstring(text).find("{http://www.w3.org/2005/Atom}entry")
-            content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
-            match = REDDIT_LINK_RE.search(content or "")
-            if not match:
-                log.warning("Reddit: no media link in the feed for %s", feed_url)
-                return None
-            url = match.group(1)
+            url = media_link
 
         media = urlsplit(url)
         if media.netloc.lower() == "i.redd.it":
