@@ -1,6 +1,8 @@
 import asyncio
+import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
@@ -33,6 +35,73 @@ async def resolve_tiktok_url(url: str) -> str:
     if "tiktok.com" not in parts.netloc or parts.path in ("", "/"):
         return url
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+def is_reddit(url: str) -> bool:
+    host = urlsplit(url).netloc.lower()
+    return host.endswith("reddit.com") or host.endswith("redd.it")
+
+REDDIT_LINK_RE = re.compile(r'<a href="([^"]+)">\[link\]</a>')
+
+async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
+    """Find the media behind a Reddit link without logging in.
+
+    Reddit blocks anonymous requests to its pages and API (so yt-dlp fails), but
+    a post's RSS feed, i.redd.it and v.redd.it are still reachable.
+    Returns ("image" | "video" | "external", url), or None if nothing was found.
+    """
+    timeout = aiohttp.ClientTimeout(total=20)
+    try:
+        async with aiohttp.ClientSession(headers=BROWSER_HEADERS, timeout=timeout) as session:
+            host = urlsplit(url).netloc.lower()
+            if host != "i.redd.it" and host != "v.redd.it":
+                # share links (/r/sub/s/...) and redd.it short links redirect to the post
+                async with session.get(url, allow_redirects=True) as response:
+                    parts = urlsplit(str(response.url))
+                if "/comments/" not in parts.path:
+                    return None
+                feed_url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/.rss", "", ""))
+
+                text = None
+                # anonymous requests get a small rate limit, so retry a few times
+                for attempt in range(4):
+                    async with session.get(feed_url) as response:
+                        if response.status == 200:
+                            text = await response.text()
+                            break
+                    await asyncio.sleep(6)
+                if text is None:
+                    return None
+
+                entry = ET.fromstring(text).find("{http://www.w3.org/2005/Atom}entry")
+                content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
+                match = REDDIT_LINK_RE.search(content or "")
+                if not match:
+                    return None
+                url = match.group(1)
+
+        media = urlsplit(url)
+        if media.netloc.lower() == "i.redd.it":
+            return "image", url
+        if media.netloc.lower() == "v.redd.it":
+            video_id = media.path.strip("/").split("/")[0]
+            return "video", f"https://v.redd.it/{video_id}/HLSPlaylist.m3u8"
+        if is_reddit(url):
+            return None  # gallery or text post
+        return "external", url
+    except (aiohttp.ClientError, asyncio.TimeoutError, ET.ParseError):
+        return None
+
+async def download_file(url: str, destination: Path) -> bool:
+    try:
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(headers=BROWSER_HEADERS, timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    return False
+                destination.write_bytes(await response.read())
+        return True
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return False
 
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     return await asyncio.to_thread(
@@ -102,12 +171,23 @@ async def has_audio(path: Path) -> bool:
     )
     return result.returncode != 0 or bool(result.stdout.strip())
 
-async def video_to_gif(input_path: Path, output_path: Path, width: int = 480) -> bool:
+async def video_to_gif(
+    input_path: Path,
+    output_path: Path,
+    width: int = 480,
+    start: float | None = None,
+    length: float | None = None
+) -> bool:
+    trim = []
+    if start is not None and length is not None:
+        trim = ["-ss", f"{start}", "-t", f"{length}"]
+
     result = await asyncio.to_thread(
         subprocess.run,
         [
             "ffmpeg",
             "-y",
+            *trim,
             "-i", str(input_path),
             "-vf",
             f"fps=15,scale='min({width},iw)':-1:flags=lanczos,split[a][b];"

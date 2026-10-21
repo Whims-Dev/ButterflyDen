@@ -1,5 +1,7 @@
 import shutil
 import time
+from pathlib import Path
+from urllib.parse import urlsplit
 
 import discord
 from discord import app_commands
@@ -14,6 +16,11 @@ MAX_GIF_LENGTH = 15
 
 MAX_SLIDESHOW_SECONDS = 90
 SECONDS_PER_IMAGE = 3
+REDDIT_FAILED = (
+    "❌ Couldn't get media from that Reddit post. Galleries and text posts aren't "
+    "supported, and Reddit may be rate limiting me, so try again in a minute."
+)
+
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".opus"}
 
@@ -96,6 +103,18 @@ def setup(tree: app_commands.CommandTree):
 
         if is_tiktok(url):
             url = await resolve_tiktok_url(url)
+
+        if is_reddit(url):
+            target = await resolve_reddit_media(url)
+            if target is None:
+                await interaction.edit_original_response(content=REDDIT_FAILED)
+                return
+            if target[0] == "image":
+                await interaction.edit_original_response(
+                    content="❌ That Reddit post is an image, not a video."
+                )
+                return
+            url = target[1]
 
         async with DOWNLOAD_LOCK:
             job = Job()
@@ -201,6 +220,35 @@ def setup(tree: app_commands.CommandTree):
                     and await send_tiktok_gallery(interaction, job, url, start)
                 ):
                     return
+
+                if is_reddit(url):
+                    target = await resolve_reddit_media(url)
+                    if target is None:
+                        await interaction.edit_original_response(content=REDDIT_FAILED)
+                        return
+
+                    kind, url = target
+                    if kind == "image":
+                        image = job.path / (Path(urlsplit(url).path).name or "image.jpg")
+                        if not await download_file(url, image):
+                            await interaction.edit_original_response(
+                                content="❌ Failed to download the image."
+                            )
+                            return
+
+                        size_mb = image.stat().st_size / (1024 * 1024)
+                        if size_mb > 25:
+                            await interaction.edit_original_response(
+                                content=f"⚠️ Image too large ({size_mb:.1f} MB)."
+                            )
+                            return
+
+                        elapsed = max(round(time.monotonic() - start, 2), 0.01)
+                        await interaction.edit_original_response(
+                            content=f"`Download time: {elapsed}s`",
+                            attachments=[discord.File(image)]
+                        )
+                        return
 
                 duration = await get_duration(url)
 
@@ -345,17 +393,46 @@ def setup(tree: app_commands.CommandTree):
         if is_tiktok(url):
             url = await resolve_tiktok_url(url)
 
+        if is_reddit(url):
+            target = await resolve_reddit_media(url)
+            if target is None:
+                await interaction.edit_original_response(content=REDDIT_FAILED)
+                return
+            if target[0] == "image":
+                await interaction.edit_original_response(
+                    content="❌ That Reddit post is an image, not a video."
+                )
+                return
+            url = target[1]
+
         async with DOWNLOAD_LOCK:
             job = Job()
             start_time = time.monotonic()
 
             try:
+                # yt-dlp's section download returns a truncated clip for Reddit's HLS
+                # streams, so those are downloaded whole and trimmed by ffmpeg instead
+                trim_with_ffmpeg = url.endswith("HLSPlaylist.m3u8")
+                if trim_with_ffmpeg:
+                    duration = await get_duration(url)
+                    if duration is not None and duration > MAX_DURATION_SECONDS:
+                        await interaction.edit_original_response(
+                            content=f"⚠️ Video too long ({duration / 60:.1f} min, max {MAX_DURATION_SECONDS // 60} min)."
+                        )
+                        return
+
                 end_seconds = start_seconds + length
                 result = await run_ytdlp([
                     "--no-playlist",
                     *(["-S", "vcodec:h264"] if is_tiktok(url) else []),
-                    "--download-sections", f"*{start_seconds}-{end_seconds}",
-                    "--force-keyframes-at-cuts",
+                    *(
+                        []
+                        if trim_with_ffmpeg
+                        else [
+                            "--download-sections", f"*{start_seconds}-{end_seconds}",
+                            "--force-keyframes-at-cuts",
+                        ]
+                    ),
                     "--paths", str(job.path),
                     "-o", "%(id)s.%(ext)s",
                     url
@@ -385,7 +462,10 @@ def setup(tree: app_commands.CommandTree):
                 output = job.path / "animation.gif"
                 for width in (480, 320, 240):
                     if (
-                        await video_to_gif(videos[0], output, width)
+                        await video_to_gif(
+                            videos[0], output, width,
+                            *((start_seconds, length) if trim_with_ffmpeg else ())
+                        )
                         and output.stat().st_size / (1024 * 1024) <= 25
                     ):
                         elapsed = max(round(time.monotonic() - start_time, 2), 0.01)
