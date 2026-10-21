@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -45,6 +46,28 @@ def is_reddit(url: str) -> bool:
 
 REDDIT_LINK_RE = re.compile(r'<a href="([^"]+)">\[link\]</a>')
 
+async def curl(url: str, output: Path | None = None) -> tuple[int, str, bytes]:
+    """Fetch a URL with curl and return (HTTP status, final URL, body).
+
+    Reddit answers curl where it blocks Python's HTTP client from the Pi.
+    With `output` set the body is written to that file instead of returned.
+    """
+    marker = b"<<curl>>"
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "curl", "-sL", "--max-time", "30",
+            "-A", BROWSER_HEADERS["User-Agent"],
+            *(["-o", str(output)] if output else []),
+            "-w", marker.decode() + "%{http_code} %{url_effective}",
+            url
+        ],
+        capture_output=True
+    )
+    body, _, tail = result.stdout.rpartition(marker)
+    status, _, final_url = tail.decode(errors="replace").partition(" ")
+    return (int(status) if status.isdigit() else 0), final_url.strip(), body
+
 async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
     """Find the media behind a Reddit link without logging in.
 
@@ -52,38 +75,38 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
     a post's RSS feed, i.redd.it and v.redd.it are still reachable.
     Returns ("image" | "video" | "external", url), or None if nothing was found.
     """
-    timeout = aiohttp.ClientTimeout(total=20)
     try:
-        async with aiohttp.ClientSession(headers=BROWSER_HEADERS, timeout=timeout) as session:
-            host = urlsplit(url).netloc.lower()
-            if host != "i.redd.it" and host != "v.redd.it":
-                # share links (/r/sub/s/...) and redd.it short links redirect to the post
-                async with session.get(url, allow_redirects=True) as response:
-                    parts = urlsplit(str(response.url))
-                if "/comments/" not in parts.path:
-                    log.warning("Reddit: %s redirected to %s, which is not a post", url, response.url)
-                    return None
-                feed_url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/.rss", "", ""))
+        host = urlsplit(url).netloc.lower()
+        if host != "i.redd.it" and host != "v.redd.it":
+            # share links (/r/sub/s/...) and redd.it short links redirect to the post
+            status, final_url, _ = await curl(url, output=Path(os.devnull))
+            parts = urlsplit(final_url)
+            if "/comments/" not in parts.path:
+                log.warning("Reddit: %s went to %s (HTTP %s), which is not a post", url, final_url, status)
+                return None
+            feed_url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/.rss", "", ""))
 
-                text = None
-                # anonymous requests get a small rate limit, so retry a few times
-                for attempt in range(4):
-                    async with session.get(feed_url) as response:
-                        if response.status == 200:
-                            text = await response.text()
-                            break
-                        log.warning("Reddit: feed %s returned HTTP %s (attempt %s)", feed_url, response.status, attempt + 1)
-                    await asyncio.sleep(6)
-                if text is None:
-                    return None
+            text = None
+            # anonymous requests get a small rate limit; only 429 is worth retrying
+            for attempt in range(3):
+                status, _, body = await curl(feed_url)
+                if status == 200:
+                    text = body.decode("utf-8", errors="replace")
+                    break
+                log.warning("Reddit: feed %s returned HTTP %s (attempt %s)", feed_url, status, attempt + 1)
+                if status != 429:
+                    break
+                await asyncio.sleep(8)
+            if text is None:
+                return None
 
-                entry = ET.fromstring(text).find("{http://www.w3.org/2005/Atom}entry")
-                content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
-                match = REDDIT_LINK_RE.search(content or "")
-                if not match:
-                    log.warning("Reddit: no media link in the feed for %s", feed_url)
-                    return None
-                url = match.group(1)
+            entry = ET.fromstring(text).find("{http://www.w3.org/2005/Atom}entry")
+            content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
+            match = REDDIT_LINK_RE.search(content or "")
+            if not match:
+                log.warning("Reddit: no media link in the feed for %s", feed_url)
+                return None
+            url = match.group(1)
 
         media = urlsplit(url)
         if media.netloc.lower() == "i.redd.it":
@@ -95,20 +118,15 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
             log.warning("Reddit: %s is a gallery or text post", url)
             return None
         return "external", url
-    except (aiohttp.ClientError, asyncio.TimeoutError, ET.ParseError) as error:
+    except (OSError, subprocess.SubprocessError, ET.ParseError) as error:
         log.warning("Reddit: lookup failed for %s: %r", url, error)
         return None
 
 async def download_file(url: str, destination: Path) -> bool:
     try:
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(headers=BROWSER_HEADERS, timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    return False
-                destination.write_bytes(await response.read())
-        return True
-    except (aiohttp.ClientError, asyncio.TimeoutError):
+        status, _, _ = await curl(url, output=destination)
+        return status == 200 and destination.exists()
+    except (OSError, subprocess.SubprocessError):
         return False
 
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
