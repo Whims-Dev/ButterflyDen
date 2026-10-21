@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import subprocess
 import sys
@@ -13,6 +14,8 @@ def is_tiktok(url: str) -> bool:
 
 def is_twitter(url: str) -> bool:
     return any(d in url.lower() for d in ("twitter.com", "x.com"))
+
+log = logging.getLogger(__name__)
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -58,6 +61,7 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
                 async with session.get(url, allow_redirects=True) as response:
                     parts = urlsplit(str(response.url))
                 if "/comments/" not in parts.path:
+                    log.warning("Reddit: %s redirected to %s, which is not a post", url, response.url)
                     return None
                 feed_url = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/") + "/.rss", "", ""))
 
@@ -68,6 +72,7 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
                         if response.status == 200:
                             text = await response.text()
                             break
+                        log.warning("Reddit: feed %s returned HTTP %s (attempt %s)", feed_url, response.status, attempt + 1)
                     await asyncio.sleep(6)
                 if text is None:
                     return None
@@ -76,6 +81,7 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
                 content = entry.findtext("{http://www.w3.org/2005/Atom}content") if entry is not None else None
                 match = REDDIT_LINK_RE.search(content or "")
                 if not match:
+                    log.warning("Reddit: no media link in the feed for %s", feed_url)
                     return None
                 url = match.group(1)
 
@@ -86,9 +92,11 @@ async def resolve_reddit_media(url: str) -> tuple[str, str] | None:
             video_id = media.path.strip("/").split("/")[0]
             return "video", f"https://v.redd.it/{video_id}/HLSPlaylist.m3u8"
         if is_reddit(url):
-            return None  # gallery or text post
+            log.warning("Reddit: %s is a gallery or text post", url)
+            return None
         return "external", url
-    except (aiohttp.ClientError, asyncio.TimeoutError, ET.ParseError):
+    except (aiohttp.ClientError, asyncio.TimeoutError, ET.ParseError) as error:
+        log.warning("Reddit: lookup failed for %s: %r", url, error)
         return None
 
 async def download_file(url: str, destination: Path) -> bool:
