@@ -16,6 +16,50 @@ MAX_GIF_LENGTH = 15
 
 MAX_SLIDESHOW_SECONDS = 90
 SECONDS_PER_IMAGE = 3
+VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm"}
+
+def channel_allows_nsfw(interaction: discord.Interaction) -> bool:
+    """DMs and age-restricted channels (threads inherit from their parent)."""
+    if interaction.guild is None:
+        return True
+    channel = interaction.channel
+    return channel is not None and getattr(channel, "is_nsfw", lambda: False)()
+
+async def send_booru_post(interaction: discord.Interaction, job: Job, post_url: str, start: float) -> None:
+    """Download one e621 / e926 post with gallery-dl and send it."""
+    if not await run_gallerydl(post_url, job.path):
+        await interaction.edit_original_response(
+            content="❌ Couldn't get that post. It may have been deleted or blocked."
+        )
+        return
+
+    files = [f for f in job.path.rglob("*") if f.is_file()]
+    if not files:
+        await interaction.edit_original_response(content="❌ No media found.")
+        return
+
+    media_file = files[0]
+    size_mb = media_file.stat().st_size / (1024 * 1024)
+    if size_mb > 25:
+        compressed = job.path / "compressed.mp4"
+        if (
+            media_file.suffix.lower() in VIDEO_SUFFIXES
+            and await compress_video(media_file, compressed)
+            and compressed.stat().st_size / (1024 * 1024) <= 25
+        ):
+            media_file = compressed
+        else:
+            await interaction.edit_original_response(
+                content=f"⚠️ Media too large ({size_mb:.1f} MB)."
+            )
+            return
+
+    elapsed = max(round(time.monotonic() - start, 2), 0.01)
+    await interaction.edit_original_response(
+        content=f"`Download time: {elapsed}s`",
+        attachments=[discord.File(media_file)]
+    )
+
 REDDIT_FAILED = (
     "❌ Couldn't get media from that Reddit post. Galleries and text posts aren't "
     "supported, and Reddit may be rate limiting me, so try again in a minute."
@@ -194,9 +238,18 @@ def setup(tree: app_commands.CommandTree):
         name="download",
         description="Download media (video or images)"
     )
-    @app_commands.describe(url="Media URL (YouTube, TikTok, Twitter, Instagram, etc.)")
+    @app_commands.describe(url="Media URL (YouTube, TikTok, Twitter, Reddit, e621, etc.)")
     @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
     async def download(interaction: discord.Interaction, url: str):
+        booru = parse_booru_post(url)
+        if booru and booru[0] == "e621" and not channel_allows_nsfw(interaction):
+            await interaction.response.send_message(
+                content="🔞 e621 posts can only be downloaded in age-restricted channels or DMs. "
+                        "e926 (the safe version) works anywhere.",
+                ephemeral=True
+            )
+            return
+
         if DOWNLOAD_LOCK.locked():
             await interaction.response.send_message(
                 content="⏳ Busy. Try again shortly.",
@@ -219,6 +272,10 @@ def setup(tree: app_commands.CommandTree):
                     and "/photo/" in url
                     and await send_tiktok_gallery(interaction, job, url, start)
                 ):
+                    return
+
+                if booru:
+                    await send_booru_post(interaction, job, booru[1], start)
                     return
 
                 if is_reddit(url):

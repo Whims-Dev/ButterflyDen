@@ -45,6 +45,16 @@ def is_reddit(url: str) -> bool:
     host = urlsplit(url).netloc.lower()
     return host.endswith("reddit.com") or host.endswith("redd.it")
 
+BOORU_POST_RE = re.compile(r"^https?://(?:www\.)?(e621|e926)\.net/posts/(\d+)", re.IGNORECASE)
+
+def parse_booru_post(url: str) -> tuple[str, str] | None:
+    """Return (site, canonical post URL) for an e621 / e926 post link."""
+    match = BOORU_POST_RE.match(url.strip())
+    if not match:
+        return None
+    site = match.group(1).lower()
+    return site, f"https://{site}.net/posts/{match.group(2)}"
+
 REDDIT_LINK_RE = re.compile(r'<a href="([^"]+)">\[link\]</a>')
 
 async def curl(url: str, output: Path | None = None) -> tuple[int, str, bytes]:

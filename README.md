@@ -47,6 +47,7 @@ Butterfly's Den relies on **yt-dlp**, so it supports many platforms, including:
 * Instagram
 * TikTok
 * Reddit
+* e621 / e926 (e621 only in age-restricted channels or DMs)
 
 …and more, as supported by yt-dlp.
 
