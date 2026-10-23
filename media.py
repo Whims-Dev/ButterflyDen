@@ -45,15 +45,34 @@ def is_reddit(url: str) -> bool:
     host = urlsplit(url).netloc.lower()
     return host.endswith("reddit.com") or host.endswith("redd.it")
 
-BOORU_POST_RE = re.compile(r"^https?://(?:www\.)?(e621|e926)\.net/posts/(\d+)", re.IGNORECASE)
+BOORU_POST_RE = re.compile(
+    r"^https?://(?:www\.)?(e621|e926)\.net/(?:posts/(\d+)|p/(\w+))",
+    re.IGNORECASE
+)
 
 def parse_booru_post(url: str) -> tuple[str, str] | None:
-    """Return (site, canonical post URL) for an e621 / e926 post link."""
+    """Return (site, post URL) for an e621 / e926 link.
+
+    Short links (/p/<code>) are returned as-is; resolve_booru_post follows them.
+    """
     match = BOORU_POST_RE.match(url.strip())
     if not match:
         return None
     site = match.group(1).lower()
-    return site, f"https://{site}.net/posts/{match.group(2)}"
+    if match.group(2):
+        return site, f"https://{site}.net/posts/{match.group(2)}"
+    return site, f"https://{site}.net/p/{match.group(3)}"
+
+async def resolve_booru_post(url: str) -> tuple[str, str] | None:
+    """Turn a short /p/<code> link into the real /posts/<id> link."""
+    if "/p/" not in url:
+        return parse_booru_post(url)
+    try:
+        _, final_url, _ = await curl(url, output=Path(os.devnull))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    resolved = parse_booru_post(final_url)
+    return resolved if resolved and "/posts/" in resolved[1] else None
 
 REDDIT_LINK_RE = re.compile(r'<a href="([^"]+)">\[link\]</a>')
 

@@ -27,6 +27,18 @@ def channel_allows_nsfw(interaction: discord.Interaction) -> bool:
 
 async def send_booru_post(interaction: discord.Interaction, job: Job, post_url: str, start: float) -> None:
     """Download one e621 / e926 post with gallery-dl and send it."""
+    resolved = await resolve_booru_post(post_url)
+    if resolved is None:
+        await interaction.edit_original_response(content="❌ Couldn't open that link.")
+        return
+
+    site, post_url = resolved
+    if site == "e621" and not channel_allows_nsfw(interaction):
+        await interaction.edit_original_response(
+            content="🔞 e621 posts can only be downloaded in age-restricted channels or DMs."
+        )
+        return
+
     if not await run_gallerydl(post_url, job.path):
         await interaction.edit_original_response(
             content="❌ Couldn't get that post. It may have been deleted or blocked."
