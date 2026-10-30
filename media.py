@@ -211,6 +211,46 @@ async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
         text=True
     )
 
+def ytdlp_failure_message(url: str, stderr: str) -> str:
+    """Explain a failed yt-dlp run to the user, and log the full error for the bot owner."""
+    log.warning("yt-dlp failed for %s: %s", url, stderr.strip()[-1500:])
+
+    host = urlsplit(url).netloc.lower().removeprefix("www.") or "that link"
+    text = stderr.lower()
+
+    if "unsupported url" in text:
+        if host in ("cdn.discordapp.com", "media.discordapp.net"):
+            return f"❌ That's a Discord file link that isn't a video. Only videos can be downloaded from `{host}`."
+        return (
+            f"❌ I can't download from `{host}`. It's either not a supported site, "
+            "or the link doesn't point to a video."
+        )
+    if "private video" in text or "this video is private" in text:
+        return f"❌ That video on `{host}` is private."
+    if "age" in text and ("confirm your age" in text or "age-restricted" in text or "age restricted" in text):
+        return f"❌ That video on `{host}` is age-restricted, so I can't download it."
+    if any(phrase in text for phrase in ("sign in", "log in", "logged-in", "logged in", "login required", "authentication is required", "use --cookies")):
+        return f"❌ `{host}` wants a login for that one, so I can't download it."
+    if any(phrase in text for phrase in ("geo restricted", "not available in your country", "geo-restricted")):
+        return f"❌ That video on `{host}` isn't available in my region."
+    if "http error 429" in text or "too many requests" in text:
+        return f"❌ `{host}` is rate limiting me. Try again in a few minutes."
+    if "http error 403" in text or "forbidden" in text or "blocked" in text:
+        return f"❌ `{host}` blocked my request (403). The link may have expired or the site may block bots."
+    if "http error 404" in text or "not found" in text:
+        return f"❌ `{host}` says that doesn't exist (404). It may have been deleted, or the link has expired."
+    if any(phrase in text for phrase in ("video unavailable", "video is unavailable", "has been removed", "no longer available")):
+        return f"❌ That video on `{host}` is unavailable or was removed."
+    if "requested format is not available" in text:
+        return f"❌ `{host}` has no downloadable format for that video."
+
+    errors = [line for line in stderr.splitlines() if line.startswith("ERROR:")]
+    detail = ""
+    if errors:
+        short = " ".join(errors[-1].removeprefix("ERROR:").split())
+        detail = chr(10) + f"`{short[:200]}`"
+    return f"❌ Failed to extract media from `{host}`.{detail}"
+
 async def get_duration(url: str) -> float | None:
     result = await run_ytdlp([
         "--no-playlist",
@@ -230,6 +270,54 @@ async def get_duration(url: str) -> float | None:
         return float(output)
     except ValueError:
         return None
+
+async def needs_h264(path: Path) -> bool:
+    """True for videos many players can't decode: HEVC, AV1, or 10-bit / non-4:2:0 H.264."""
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,pix_fmt",
+            "-of", "csv=p=0",
+            str(path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    parts = result.stdout.strip().split(",")
+    if result.returncode != 0 or len(parts) < 2:
+        return False
+
+    codec, pix_fmt = parts[0], parts[1]
+    if codec in ("hevc", "av1"):
+        return True
+    return codec == "h264" and pix_fmt not in ("yuv420p", "yuvj420p")
+
+async def convert_to_h264(input_path: Path, output_path: Path) -> bool:
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffmpeg",
+            "-y",
+            "-i", str(input_path),
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-map_metadata", "-1",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output_path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    return result.returncode == 0
 
 async def compress_video(input_path: Path, output_path: Path) -> bool:
     result = await asyncio.to_thread(

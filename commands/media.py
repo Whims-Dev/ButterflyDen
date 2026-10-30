@@ -188,9 +188,10 @@ def setup(tree: app_commands.CommandTree):
                 ])
 
                 if result.returncode != 0:
-                    if "Unsupported URL" in result.stderr:
+                    first_error = result.stderr
+                    if "Unsupported URL" in first_error:
                         await interaction.edit_original_response(
-                            content="❌ Unsupported site."
+                            content=ytdlp_failure_message(url, first_error)
                         )
                         return
 
@@ -200,7 +201,7 @@ def setup(tree: app_commands.CommandTree):
 
                     if not is_image_capable_site:
                         await interaction.edit_original_response(
-                            content="❌ Failed to extract media."
+                            content=ytdlp_failure_message(url, first_error)
                         )
                         return
 
@@ -216,7 +217,7 @@ def setup(tree: app_commands.CommandTree):
 
                     if result.returncode != 0:
                         await interaction.edit_original_response(
-                            content="❌ Failed to extract media."
+                            content=ytdlp_failure_message(url, first_error)
                         )
                         return
 
@@ -337,9 +338,10 @@ def setup(tree: app_commands.CommandTree):
                 ])
 
                 if result.returncode != 0:
-                    if "Unsupported URL" in result.stderr:
+                    first_error = result.stderr
+                    if "Unsupported URL" in first_error:
                         await interaction.edit_original_response(
-                            content="❌ Unsupported site."
+                            content=ytdlp_failure_message(url, first_error)
                         )
                         return
 
@@ -358,7 +360,7 @@ def setup(tree: app_commands.CommandTree):
 
                     if result.returncode != 0:
                         await interaction.edit_original_response(
-                            content="❌ Failed to extract media."
+                            content=ytdlp_failure_message(url, first_error)
                         )
                         return
 
@@ -393,6 +395,15 @@ def setup(tree: app_commands.CommandTree):
                             attachments=[discord.File(gif)]
                         )
                         return
+
+                # HEVC / AV1 (common in Medal clips) show as audio-only on many devices
+                for video in list(videos):
+                    if await needs_h264(video):
+                        converted = video.with_name(f"{video.stem}_h264.mp4")
+                        if await convert_to_h264(video, converted):
+                            video.unlink()
+                            files = [converted if f == video else f for f in files]
+                            videos = [converted if v == video else v for v in videos]
 
                 total_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
                 if total_mb > 25:
@@ -508,14 +519,9 @@ def setup(tree: app_commands.CommandTree):
                 ])
 
                 if result.returncode != 0:
-                    if "Unsupported URL" in result.stderr:
-                        await interaction.edit_original_response(
-                            content="❌ Unsupported site."
-                        )
-                    else:
-                        await interaction.edit_original_response(
-                            content="❌ Failed to extract media."
-                        )
+                    await interaction.edit_original_response(
+                        content=ytdlp_failure_message(url, result.stderr)
+                    )
                     return
 
                 videos = [
