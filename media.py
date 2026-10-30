@@ -199,12 +199,18 @@ async def download_file(url: str, destination: Path) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
 
+# Closest to 720p without going over, preferring H.264 + AAC so files play on every device
+# and stay small enough for Discord. Without a cap yt-dlp would pick 4K VP9 (hundreds of MB).
+VIDEO_FORMAT_ARGS = [
+    "-S", "res:720,vcodec:h264,acodec:aac",
+    "--merge-output-format", "mp4",
+]
+
 async def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     return await asyncio.to_thread(
         subprocess.run,
         [
             "yt-dlp",
-            "--extractor-args", "youtube:player_client=android",
             *args
         ],
         capture_output=True,

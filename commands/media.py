@@ -331,7 +331,7 @@ def setup(tree: app_commands.CommandTree):
 
                 result = await run_ytdlp([
                     "--no-playlist",
-                    *(["-S", "vcodec:h264"] if is_tiktok(url) else []),
+                    *VIDEO_FORMAT_ARGS,
                     "--paths", str(job.path),
                     "-o", "%(title)s_%(id)s.%(ext)s",
                     url
@@ -504,7 +504,7 @@ def setup(tree: app_commands.CommandTree):
                 end_seconds = start_seconds + length
                 result = await run_ytdlp([
                     "--no-playlist",
-                    *(["-S", "vcodec:h264"] if is_tiktok(url) else []),
+                    *VIDEO_FORMAT_ARGS,
                     *(
                         []
                         if trim_with_ffmpeg
