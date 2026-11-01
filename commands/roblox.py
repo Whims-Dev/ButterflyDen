@@ -52,6 +52,7 @@ def setup(tree: app_commands.CommandTree):
         description="Convert a Roblox asset ID into a Creator Store link"
     )
     @app_commands.describe(asset="Roblox asset ID or rbxassetid:// format")
+    @app_commands.allowed_contexts(dms=True, guilds=True, private_channels=True)
     async def rbxlibrary(interaction: discord.Interaction, asset: str):
         s = asset.strip()
 

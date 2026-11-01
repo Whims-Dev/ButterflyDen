@@ -13,6 +13,7 @@ from media import *
 MAX_DURATION_SECONDS = 20 * 60
 MAX_GIF_SECONDS = 30
 MAX_GIF_LENGTH = 15
+MAX_COMPRESS_INPUT_MB = 250
 
 MAX_SLIDESHOW_SECONDS = 90
 SECONDS_PER_IMAGE = 3
@@ -552,6 +553,90 @@ def setup(tree: app_commands.CommandTree):
 
                 await interaction.edit_original_response(
                     content="⚠️ GIF too large, even when shrunk. Try a shorter length."
+                )
+
+            finally:
+                job.cleanup()
+
+    @tree.command(
+        name="compress",
+        description="Shrink a video so it fits under a size limit"
+    )
+    @app_commands.describe(
+        video="The video file to compress",
+        target_mb="Size to stay under in MB, 1-25 (default: 25)"
+    )
+    @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+    async def compress(
+        interaction: discord.Interaction,
+        video: discord.Attachment,
+        target_mb: app_commands.Range[int, 1, 25] = 25
+    ):
+        content_type = video.content_type or ""
+        if not content_type.startswith("video/") and Path(video.filename).suffix.lower() not in VIDEO_SUFFIXES | {".mov", ".m4v", ".avi"}:
+            await interaction.response.send_message(
+                content="❌ That doesn't look like a video file.",
+                ephemeral=True
+            )
+            return
+
+        if video.size > MAX_COMPRESS_INPUT_MB * 1024 * 1024:
+            await interaction.response.send_message(
+                content=f"❌ That file is too big for me to handle ({video.size / (1024 * 1024):.0f} MB, max {MAX_COMPRESS_INPUT_MB} MB).",
+                ephemeral=True
+            )
+            return
+
+        if video.size <= target_mb * 1024 * 1024:
+            await interaction.response.send_message(
+                content=f"✅ That's already under {target_mb} MB ({video.size / (1024 * 1024):.1f} MB), nothing to compress.",
+                ephemeral=True
+            )
+            return
+
+        if DOWNLOAD_LOCK.locked():
+            await interaction.response.send_message(
+                content="⏳ Busy. Try again shortly.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        async with DOWNLOAD_LOCK:
+            job = Job()
+            start = time.monotonic()
+
+            try:
+                source = job.path / f"input{Path(video.filename).suffix.lower() or '.mp4'}"
+                await video.save(source)
+
+                duration = await get_media_duration(source)
+                if duration is None or duration <= 0:
+                    await interaction.edit_original_response(
+                        content="❌ Couldn't read that video. The file may be damaged."
+                    )
+                    return
+
+                if duration > MAX_DURATION_SECONDS:
+                    await interaction.edit_original_response(
+                        content=f"⚠️ Video too long ({duration / 60:.1f} min, max {MAX_DURATION_SECONDS // 60} min)."
+                    )
+                    return
+
+                output = job.path / f"{Path(video.filename).stem}_compressed.mp4"
+                if not await compress_to_size(source, output, target_mb, duration, await has_audio(source)):
+                    await interaction.edit_original_response(
+                        content=f"⚠️ Couldn't get that under {target_mb} MB without ruining it. Try a larger target or a shorter clip."
+                    )
+                    return
+
+                elapsed = max(round(time.monotonic() - start, 2), 0.01)
+                before = video.size / (1024 * 1024)
+                after = output.stat().st_size / (1024 * 1024)
+                await interaction.edit_original_response(
+                    content=f"`{before:.1f} MB → {after:.1f} MB in {elapsed}s`",
+                    attachments=[discord.File(output)]
                 )
 
             finally:

@@ -345,6 +345,60 @@ async def compress_video(input_path: Path, output_path: Path) -> bool:
     )
     return result.returncode == 0
 
+async def compress_to_size(
+    input_path: Path,
+    output_path: Path,
+    target_mb: float,
+    duration: float,
+    audio: bool
+) -> bool:
+    """Re-encode to H.264 aiming under target_mb by choosing a video bitrate.
+
+    Lower bitrates also get a lower resolution, since a small picture at a decent
+    bitrate looks better than a large one starved of bits. Retries with less
+    bitrate if the first attempt lands over the target.
+    """
+    audio_bps = 96_000 if audio else 0
+    video_bps = (target_mb * 8 * 1024 * 1024 * 0.92) / duration - audio_bps
+    if video_bps < 80_000:
+        return False
+
+    for attempt in range(3):
+        if video_bps >= 3_000_000:
+            height = 1080
+        elif video_bps >= 1_200_000:
+            height = 720
+        elif video_bps >= 500_000:
+            height = 480
+        else:
+            height = 360
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(input_path),
+            "-map", "0:v:0",
+            *(["-map", "0:a:0"] if audio else []),
+            "-map_metadata", "-1",
+            "-vf", f"scale=-2:'min({height},ih)'",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-b:v", str(int(video_bps)),
+            "-maxrate", str(int(video_bps * 1.3)),
+            "-bufsize", str(int(video_bps * 2)),
+            "-pix_fmt", "yuv420p",
+            *(["-c:a", "aac", "-b:a", str(audio_bps)] if audio else []),
+            "-movflags", "+faststart",
+            str(output_path)
+        ]
+        result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            return False
+        if output_path.stat().st_size <= target_mb * 1024 * 1024:
+            return True
+        video_bps *= 0.8
+
+    return False
+
 async def has_audio(path: Path) -> bool:
     result = await asyncio.to_thread(
         subprocess.run,
