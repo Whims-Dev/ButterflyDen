@@ -14,6 +14,7 @@ MAX_DURATION_SECONDS = 20 * 60
 MAX_GIF_SECONDS = 30
 MAX_GIF_LENGTH = 15
 MAX_COMPRESS_INPUT_MB = 250
+DEFAULT_COMPRESS_RATIO = 0.5
 
 MAX_SLIDESHOW_SECONDS = 90
 SECONDS_PER_IMAGE = 3
@@ -564,13 +565,13 @@ def setup(tree: app_commands.CommandTree):
     )
     @app_commands.describe(
         video="The video file to compress",
-        target_mb="Size to stay under in MB, 1-25 (default: 25)"
+        target_mb="Size to stay under in MB, 0.5-25 (default: half the video's size, max 25)"
     )
     @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
     async def compress(
         interaction: discord.Interaction,
         video: discord.Attachment,
-        target_mb: app_commands.Range[int, 1, 25] = 25
+        target_mb: app_commands.Range[float, 0.5, 25.0] | None = None
     ):
         content_type = video.content_type or ""
         if not content_type.startswith("video/") and Path(video.filename).suffix.lower() not in VIDEO_SUFFIXES | {".mov", ".m4v", ".avi"}:
@@ -587,9 +588,13 @@ def setup(tree: app_commands.CommandTree):
             )
             return
 
-        if video.size <= target_mb * 1024 * 1024:
+        size_mb = video.size / (1024 * 1024)
+        if target_mb is None:
+            target_mb = round(min(25, max(0.5, size_mb * DEFAULT_COMPRESS_RATIO)), 1)
+
+        if size_mb <= target_mb:
             await interaction.response.send_message(
-                content=f"✅ That's already under {target_mb} MB ({video.size / (1024 * 1024):.1f} MB), nothing to compress.",
+                content=f"✅ That's already under {target_mb:g} MB ({size_mb:.1f} MB), nothing to compress.",
                 ephemeral=True
             )
             return
@@ -627,7 +632,7 @@ def setup(tree: app_commands.CommandTree):
                 output = job.path / f"{Path(video.filename).stem}_compressed.mp4"
                 if not await compress_to_size(source, output, target_mb, duration, await has_audio(source)):
                     await interaction.edit_original_response(
-                        content=f"⚠️ Couldn't get that under {target_mb} MB without ruining it. Try a larger target or a shorter clip."
+                        content=f"⚠️ Couldn't get that under {target_mb:g} MB without ruining it. Try a larger target or a shorter clip."
                     )
                     return
 
