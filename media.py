@@ -541,6 +541,60 @@ async def get_image_size(path: Path) -> tuple[int, int] | None:
         return None
 
 STILL_FPS = 5
+ANIMATION_FPS = 24
+
+async def is_animated(path: Path) -> bool:
+    """True if the image has more than one frame (an animated GIF, APNG, ...)."""
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-count_frames",
+            "-show_entries", "stream=nb_read_frames",
+            "-of", "csv=p=0",
+            str(path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    try:
+        return int(result.stdout.strip().split(",")[0]) > 1
+    except (ValueError, IndexError):
+        return False
+
+async def make_looping_video(animation: Path, audio: Path, output_path: Path, total_seconds: float) -> bool:
+    """Loop an animated image for total_seconds with the audio underneath."""
+    size = await get_image_size(animation)
+    frame_w, frame_h = (1280, 720) if size and size[0] > size[1] else (720, 1280)
+
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffmpeg", "-y",
+            "-ignore_loop", "0",
+            "-stream_loop", "-1",
+            "-i", str(animation),
+            "-i", str(audio),
+            "-filter_complex",
+            f"[0:v]fps={ANIMATION_FPS},"
+            f"scale={frame_w}:{frame_h}:force_original_aspect_ratio=decrease,"
+            f"pad={frame_w}:{frame_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v]",
+            "-map", "[v]",
+            "-map", "1:a",
+            "-t", f"{total_seconds:.3f}",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "28",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output_path)
+        ],
+        capture_output=True,
+        text=True
+    )
+    return result.returncode == 0
 
 async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
     """Show each image for an equal share of total_seconds, with audio underneath."""

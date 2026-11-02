@@ -93,6 +93,7 @@ AUDIO_UPLOAD_SUFFIXES = {".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac
 MAX_IMAGE_UPLOAD_MB = 25
 MAX_AUDIO_UPLOAD_MB = 50
 MAX_IMAGEVIDEO_SECONDS = 15 * 60
+MAX_ANIMATED_IMAGEVIDEO_SECONDS = 5 * 60
 
 def attachment_is(attachment: discord.Attachment, content_prefix: str, suffixes: set[str]) -> bool:
     return (
@@ -788,7 +789,7 @@ def setup(tree: app_commands.CommandTree):
         description="Turn an image and an audio file into a video"
     )
     @app_commands.describe(
-        image="The picture to show",
+        image="The picture to show (animated GIFs loop)",
         audio="The audio to play (the video lasts as long as it does, max 15 min)"
     )
     @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
@@ -844,7 +845,20 @@ def setup(tree: app_commands.CommandTree):
                     return
 
                 output = job.path / "video.mp4"
-                if not await make_slideshow([image_path], audio_path, output, audio_length):
+                animated = await is_animated(image_path)
+                if animated and audio_length > MAX_ANIMATED_IMAGEVIDEO_SECONDS:
+                    await interaction.edit_original_response(
+                        content=f"⚠️ Animated images can only go with audio up to {MAX_ANIMATED_IMAGEVIDEO_SECONDS // 60} min "
+                                f"(yours is {audio_length / 60:.1f} min)."
+                    )
+                    return
+
+                if animated:
+                    built = await make_looping_video(image_path, audio_path, output, audio_length)
+                else:
+                    built = await make_slideshow([image_path], audio_path, output, audio_length)
+
+                if not built:
                     await interaction.edit_original_response(
                         content="❌ Couldn't build the video. The image may be in a format I can't read."
                     )
