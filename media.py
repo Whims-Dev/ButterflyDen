@@ -540,6 +540,8 @@ async def get_image_size(path: Path) -> tuple[int, int] | None:
     except ValueError:
         return None
 
+STILL_FPS = 5
+
 async def make_slideshow(images: list[Path], audio: Path | None, output_path: Path, total_seconds: float) -> bool:
     """Show each image for an equal share of total_seconds, with audio underneath."""
     per_image = total_seconds / len(images)
@@ -594,16 +596,19 @@ async def make_slideshow(images: list[Path], audio: Path | None, output_path: Pa
             f"[bg][dots]overlay=x=(W-w)/2:y={frame_h - 77}:format=auto,format=yuv420p[v]"
         )
     else:
-        graph = "[0:v]format=yuv420p[v]"
+        # a single still doesn't need 30 frames a second; a low rate keeps long audio quick to encode
+        graph = f"[0:v]fps={STILL_FPS},format=yuv420p[v]"
 
     cmd += ["-filter_complex", graph, "-map", "[v]"]
     if audio is not None:
         cmd += ["-map", "1:a"]
     cmd += [
-        "-r", "30",
+        "-r", "30" if len(images) > 1 else str(STILL_FPS),
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "28",
+        # a keyframe every 5 seconds on stills so seeking stays responsive
+        *(["-g", str(STILL_FPS * 5)] if len(images) == 1 else []),
     ]
     if audio is not None:
         cmd += ["-c:a", "aac", "-b:a", "128k"]

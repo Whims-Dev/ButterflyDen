@@ -79,6 +79,27 @@ REDDIT_FAILED = (
     "supported, and Reddit may be rate limiting me, so try again in a minute."
 )
 
+AUDIO_UPLOAD_SUFFIXES = {".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac"}
+MAX_SLIDESHOW_IMAGE_MB = 25
+MAX_SLIDESHOW_AUDIO_MB = 50
+
+def attachment_is(attachment: discord.Attachment, content_prefix: str, suffixes: set[str]) -> bool:
+    return (
+        (attachment.content_type or "").startswith(content_prefix)
+        or Path(attachment.filename).suffix.lower() in suffixes
+    )
+
+AUDIO_UPLOAD_SUFFIXES = {".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac"}
+MAX_IMAGE_UPLOAD_MB = 25
+MAX_AUDIO_UPLOAD_MB = 50
+MAX_IMAGEVIDEO_SECONDS = 15 * 60
+
+def attachment_is(attachment: discord.Attachment, content_prefix: str, suffixes: set[str]) -> bool:
+    return (
+        (attachment.content_type or "").startswith(content_prefix)
+        or Path(attachment.filename).suffix.lower() in suffixes
+    )
+
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".opus"}
 
@@ -641,6 +662,204 @@ def setup(tree: app_commands.CommandTree):
                 after = output.stat().st_size / (1024 * 1024)
                 await interaction.edit_original_response(
                     content=f"`{before:.1f} MB → {after:.1f} MB in {elapsed}s`",
+                    attachments=[discord.File(output)]
+                )
+
+            finally:
+                job.cleanup()
+
+    @tree.command(
+        name="slideshow",
+        description="Turn images and a song into a video"
+    )
+    @app_commands.describe(
+        audio="The audio file (the video lasts as long as it does, max 90s)",
+        image1="First image",
+        image2="Second image",
+        image3="Third image",
+        image4="Fourth image",
+        image5="Fifth image",
+        image6="Sixth image",
+        image7="Seventh image",
+        image8="Eighth image",
+        image9="Ninth image",
+        image10="Tenth image"
+    )
+    @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+    async def slideshow(
+        interaction: discord.Interaction,
+        audio: discord.Attachment,
+        image1: discord.Attachment,
+        image2: discord.Attachment | None = None,
+        image3: discord.Attachment | None = None,
+        image4: discord.Attachment | None = None,
+        image5: discord.Attachment | None = None,
+        image6: discord.Attachment | None = None,
+        image7: discord.Attachment | None = None,
+        image8: discord.Attachment | None = None,
+        image9: discord.Attachment | None = None,
+        image10: discord.Attachment | None = None
+    ):
+        images = [
+            image for image in (
+                image1, image2, image3, image4, image5,
+                image6, image7, image8, image9, image10
+            ) if image is not None
+        ]
+
+        problem = None
+        if not attachment_is(audio, "audio/", AUDIO_UPLOAD_SUFFIXES):
+            problem = f"`{audio.filename}` doesn't look like an audio file."
+        elif audio.size > MAX_SLIDESHOW_AUDIO_MB * 1024 * 1024:
+            problem = f"That audio file is too big (max {MAX_SLIDESHOW_AUDIO_MB} MB)."
+        else:
+            for image in images:
+                if not attachment_is(image, "image/", IMAGE_SUFFIXES | {".gif"}):
+                    problem = f"`{image.filename}` doesn't look like an image."
+                    break
+                if image.size > MAX_SLIDESHOW_IMAGE_MB * 1024 * 1024:
+                    problem = f"`{image.filename}` is too big (max {MAX_SLIDESHOW_IMAGE_MB} MB per image)."
+                    break
+
+        if problem:
+            await interaction.response.send_message(content=f"❌ {problem}", ephemeral=True)
+            return
+
+        if DOWNLOAD_LOCK.locked():
+            await interaction.response.send_message(
+                content="⏳ Busy. Try again shortly.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        async with DOWNLOAD_LOCK:
+            job = Job()
+            start = time.monotonic()
+
+            try:
+                audio_path = job.path / f"audio{Path(audio.filename).suffix.lower() or '.mp3'}"
+                await audio.save(audio_path)
+
+                image_paths = []
+                for number, image in enumerate(images, start=1):
+                    suffix = Path(image.filename).suffix.lower() or ".jpg"
+                    image_path = job.path / f"slide_{number:03d}{suffix}"
+                    await image.save(image_path)
+                    image_paths.append(image_path)
+
+                audio_length = await get_media_duration(audio_path)
+                if audio_length is None or audio_length <= 0:
+                    await interaction.edit_original_response(
+                        content="❌ Couldn't read that audio file. It may be damaged."
+                    )
+                    return
+
+                trimmed = audio_length > MAX_SLIDESHOW_SECONDS
+                total_seconds = min(audio_length, MAX_SLIDESHOW_SECONDS)
+
+                output = job.path / "slideshow.mp4"
+                if not await make_slideshow(image_paths, audio_path, output, total_seconds):
+                    await interaction.edit_original_response(
+                        content="❌ Couldn't build the video. One of the images may be in a format I can't read."
+                    )
+                    return
+
+                size_mb = output.stat().st_size / (1024 * 1024)
+                if size_mb > 25:
+                    await interaction.edit_original_response(
+                        content=f"⚠️ The video came out too large ({size_mb:.1f} MB). Try fewer images or a shorter song."
+                    )
+                    return
+
+                elapsed = max(round(time.monotonic() - start, 2), 0.01)
+                note = f" (audio trimmed to {MAX_SLIDESHOW_SECONDS}s)" if trimmed else ""
+                await interaction.edit_original_response(
+                    content=f"`{len(images)} images, {total_seconds:.0f}s, {elapsed}s to make{note}`",
+                    attachments=[discord.File(output)]
+                )
+
+            finally:
+                job.cleanup()
+
+    @tree.command(
+        name="imagevideo",
+        description="Turn an image and an audio file into a video"
+    )
+    @app_commands.describe(
+        image="The picture to show",
+        audio="The audio to play (the video lasts as long as it does, max 15 min)"
+    )
+    @app_commands.allowed_contexts(dms=True,guilds=True,private_channels=True)
+    async def imagevideo(
+        interaction: discord.Interaction,
+        image: discord.Attachment,
+        audio: discord.Attachment
+    ):
+        problem = None
+        if not attachment_is(image, "image/", IMAGE_SUFFIXES | {".gif"}):
+            problem = f"`{image.filename}` doesn't look like an image."
+        elif image.size > MAX_IMAGE_UPLOAD_MB * 1024 * 1024:
+            problem = f"That image is too big (max {MAX_IMAGE_UPLOAD_MB} MB)."
+        elif not attachment_is(audio, "audio/", AUDIO_UPLOAD_SUFFIXES):
+            problem = f"`{audio.filename}` doesn't look like an audio file."
+        elif audio.size > MAX_AUDIO_UPLOAD_MB * 1024 * 1024:
+            problem = f"That audio file is too big (max {MAX_AUDIO_UPLOAD_MB} MB)."
+
+        if problem:
+            await interaction.response.send_message(content=f"❌ {problem}", ephemeral=True)
+            return
+
+        if DOWNLOAD_LOCK.locked():
+            await interaction.response.send_message(
+                content="⏳ Busy. Try again shortly.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        async with DOWNLOAD_LOCK:
+            job = Job()
+            start = time.monotonic()
+
+            try:
+                image_path = job.path / f"slide_001{Path(image.filename).suffix.lower() or '.jpg'}"
+                audio_path = job.path / f"audio{Path(audio.filename).suffix.lower() or '.mp3'}"
+                await image.save(image_path)
+                await audio.save(audio_path)
+
+                audio_length = await get_media_duration(audio_path)
+                if audio_length is None or audio_length <= 0:
+                    await interaction.edit_original_response(
+                        content="❌ Couldn't read that audio file. It may be damaged."
+                    )
+                    return
+
+                if audio_length > MAX_IMAGEVIDEO_SECONDS:
+                    await interaction.edit_original_response(
+                        content=f"⚠️ Audio too long ({audio_length / 60:.1f} min, max {MAX_IMAGEVIDEO_SECONDS // 60} min)."
+                    )
+                    return
+
+                output = job.path / "video.mp4"
+                if not await make_slideshow([image_path], audio_path, output, audio_length):
+                    await interaction.edit_original_response(
+                        content="❌ Couldn't build the video. The image may be in a format I can't read."
+                    )
+                    return
+
+                size_mb = output.stat().st_size / (1024 * 1024)
+                if size_mb > 25:
+                    await interaction.edit_original_response(
+                        content=f"⚠️ The video came out too large ({size_mb:.1f} MB). Try a shorter audio file."
+                    )
+                    return
+
+                elapsed = max(round(time.monotonic() - start, 2), 0.01)
+                await interaction.edit_original_response(
+                    content=f"`{audio_length:.0f}s video made in {elapsed}s`",
                     attachments=[discord.File(output)]
                 )
 
