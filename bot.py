@@ -19,10 +19,10 @@ async def on_ready():
     await tree.sync()
     print(f"Logged in as {client.user}")
 
-from commands import general, media, roblox
+from commands import general, media, roblox, stems
 from listeners import attachments
 
-for module in (general, media, roblox):
+for module in (general, media, roblox, stems):
     module.setup(tree)
 
 for module in (attachments,):

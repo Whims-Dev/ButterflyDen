@@ -28,6 +28,9 @@ It is designed to be:
 * **`/mp3`**
   Extracts audio and delivers it as an MP3.
 
+* **`/split`**
+  Splits a song into vocals + instrumental, 4 or 6 stems, or a full drum kit (needs `audio-separator`, see `stems.py`). Very CPU-heavy: tune `STEM_SLOWDOWN` and `STEM_TIMEOUT` for your hardware.
+
 * Single-message responses (no spam)
 
 * Automatic cleanup of temporary files
