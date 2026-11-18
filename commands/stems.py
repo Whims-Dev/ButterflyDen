@@ -34,7 +34,9 @@ JOB_TIMEOUT_SECONDS = int(os.getenv("STEM_TIMEOUT", "720"))
 # How much slower this machine is than the fast PC the cost table below was measured on.
 # 1 = about as fast as that PC. Raise it on slow hardware (a Raspberry Pi) so the length
 # limits shrink to what can finish in time. Measure with `python stems.py <song> <dir> <mode>`.
-HARDWARE_SLOWDOWN = float(os.getenv("STEM_SLOWDOWN", "6"))
+# Measured on a Raspberry Pi 4 (4 cores): 40 s of audio took 215 s with htdemucs, against 21 s on
+# the 16-core PC, so about 10x. A faster Pi or a PC should set this lower.
+HARDWARE_SLOWDOWN = float(os.getenv("STEM_SLOWDOWN", "10"))
 
 # Seconds of work per second of audio, measured on a 16-core desktop CPU (no GPU).
 COST_PER_AUDIO_SECOND = {
